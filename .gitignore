@@ -137,3 +137,6 @@ dask-worker-space
 
 #VSCode
 .vscode
+
+#URLs need to be updated regulary
+training_urls.txt
