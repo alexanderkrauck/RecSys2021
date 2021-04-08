@@ -43,7 +43,7 @@ __all_labels = ["reply",
               "retweet_comment",
               "like"]
 
-__all_columns = all_features + all_labels
+__all_columns = __all_features + __all_labels
 
 
 #Helper Functions
@@ -62,7 +62,7 @@ def initial_preprocess_data(
         fully_drop_bert: bool,
         drop_tweet_id: bool,
         add_bert_length_as_feature: bool = True,
-        blocksize: str = "64MB",
+        blocksize: str = "64MB"
         #TODO: REPLACE USER IDS BY NUMBERS, COLLECT FEATURES THAT REQUIRE STATISTICS OVER MULTIPLE PART FILES
     ):
     """A helper function for the initial heavy processing of the data (will take a bit)
@@ -82,7 +82,7 @@ def initial_preprocess_data(
     seperate_bert : bool
         If true, the BERT column will be seperated into another file which can be joined again over the "tweet_id" field
     fully_drop_bert : bool
-        Requires "seperate_bert" to be true. If true, then the BERT column will be dropped and it will not be kept at all.
+        Overrides "seperate_bert". If true, then the BERT column will be dropped and it will not be kept at all.
     drop_tweet_id : bool
         If true the tweet id will be dropped. Also this means that we can not locate the BERT encodings anymore if they are seperated.
         It makes no sense to have "convert_tweet_id_to_number" enabled if this is true.
@@ -102,7 +102,7 @@ def initial_preprocess_data(
         ddf["tweet_id"] = ddf[["tweet_id"]].map_partitions(partition_indexing, meta=pd.Series(dtype=np.uint32))
         ddf["tweet_id"] = ddf["tweet_id"].astype(np.uint32)
 
-    if seperate_bert:
+    if seperate_bert or fully_drop_bert:
         if not fully_drop_bert:
             bert_dir = join(output_dir, "bert")
             bert_ddf = ddf[["bert_base_multilingual_cased_tokens", "tweet_id"]]
