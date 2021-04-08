@@ -127,3 +127,13 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+#Data Directories
+downloaded_data
+compressed_data
+
+#dask
+dask-worker-space
+
+#VSCode
+.vscode
