@@ -129,8 +129,11 @@ dmypy.json
 .pyre/
 
 #Data Directories
-downloaded_data
-compressed_data
+downloaded_data/
+compressed_data/
+selected_data/
+reduced_1_data/
+reduced_2_data/
 
 #dask
 dask-worker-space
