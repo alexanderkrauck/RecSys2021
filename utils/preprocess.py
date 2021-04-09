@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import dask
 import dask.dataframe as dd
+from dask.diagnostics import ProgressBar
 
 
 __all_features = ["bert_base_multilingual_cased_tokens",
@@ -50,7 +51,7 @@ __all_labels = ["reply",
 
 __all_columns = __all_features + __all_labels
 
-__type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "Toplevel":3}
+__type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}
 
 __media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
 
@@ -117,7 +118,7 @@ def initial_preprocess_data(
     blocksize : str
         The blocksize in which the data of in the path will be split. If this is chosen to high, the memory will become full.
     verbose : int
-        Decides level of verboseness. (Max 2, Min 0)
+        Decides level of verboseness. (Max 1, Min 0)
     """
     st = t()
     nobert_dir = join(output_dir,"nobert")
@@ -141,9 +142,12 @@ def initial_preprocess_data(
     ddf['domains'] = ddf['domains'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
 
 
-    if verbose > 0: print("Now computing unique column elements... ", end="")
-    dt = t()
-    result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
+    if verbose > 0: print("Now computing unique column elements... ")
+    if verbose > 0:
+        with ProgressBar():
+            result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
+    else:
+        result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
 
     unique_hashtags = set(itertools.chain.from_iterable([result_tuple[0] for result_tuple in result_tuples]))
     hashtags_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_hashtags))
