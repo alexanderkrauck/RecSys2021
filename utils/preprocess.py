@@ -52,7 +52,7 @@ __all_columns = __all_features + __all_labels
 
 __type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "Toplevel":3}
 
-__media_type_mapping = {"Photo":0, "Video":1, "Gif":2}
+__media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
 
 #Helper Functions
 def _partition_indexing(df, partition_info=None):
@@ -61,6 +61,14 @@ def _partition_indexing(df, partition_info=None):
     #This is not a stable choice but will work well with 64MB data splits
     df["tweet_id"] = df["tweet_id"] + partition_info["number"] * 200000 
     return df["tweet_id"]
+
+def _collect_unique_items(df):
+    hashtags = list(set([a for b in df["hashtags"].tolist() for a in b]))
+    links = list(set([a for b in df["links"].tolist() for a in b]))
+    domains = list(set([a for b in df["domains"].tolist() for a in b]))
+    languages = list(set(df["language"].tolist()))
+
+    return (hashtags, links, domains, languages)
 
 def _map_list_column(df, mapping, column_name):
     new_column = df[column_name].apply(lambda x: [mapping[str(item)] for item in x])
@@ -119,49 +127,35 @@ def initial_preprocess_data(
     ddf = dd.read_csv(csv_path, sep='\x01', header=None, names=__all_columns, blocksize=blocksize)
     if verbose > 0: print(f"The data is split into {ddf.npartitions} partitions of size {blocksize} each.")
 
-
     ddf['medias'] = ddf['medias'].fillna("")
     ddf['medias'] = ddf['medias'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-    medias_task = ddf.map_partitions(lambda x: (list(set([a for b in x.medias.tolist() for a in b]))), meta=list)
-    if verbose > 0: print("Now computing unique media types... ", end="")
-    dt = t()
-    media_set = set(itertools.chain.from_iterable(medias_task.compute()))
-    if verbose > 0: print(f"done ({t() - dt}s)")
-    media_types_mapping = dict((o, idx) for idx, o in enumerate(media_set))
-    del media_set
-    gc.collect()
+
 
     ddf['hashtags'] = ddf['hashtags'].fillna("")
     ddf['hashtags'] = ddf['hashtags'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-    hashtags_task = ddf.map_partitions(lambda x: (list(set([a for b in x.hashtags.tolist() for a in b]))), meta=list)
-    if verbose > 0: print("Now computing unique hashtag types... ", end="")
-    dt = t()
-    hashtags_set = set(itertools.chain.from_iterable(hashtags_task.compute()))
-    if verbose > 0: print(f"done ({t() - dt}s)")
-    hashtags_types_mapping = dict((o, idx) for idx, o in enumerate(hashtags_set))
-    del hashtags_set
-    gc.collect()
 
     ddf['links'] = ddf['links'].fillna("")
     ddf['links'] = ddf['links'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-    links_task = ddf.map_partitions(lambda x: (list(set([a for b in x.links.tolist() for a in b]))), meta=list)
-    if verbose > 0: print("Now computing unique link types... ", end="")
-    dt = t()
-    links_set = set(itertools.chain.from_iterable(links_task.compute()))
-    if verbose > 0: print(f"done ({t() - dt}s)")
-    links_types_mapping = dict((o, idx) for idx, o in enumerate(links_set))
-    del links_set
-    gc.collect()
 
     ddf['domains'] = ddf['domains'].fillna("")
     ddf['domains'] = ddf['domains'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-    domains_task = ddf.map_partitions(lambda x: (list(set([a for b in x.domains.tolist() for a in b]))), meta=list)
-    if verbose > 0: print("Now computing unique domain types... ", end="")
+
+
+    if verbose > 0: print("Now computing unique column elements... ", end="")
     dt = t()
-    domains_set = set(itertools.chain.from_iterable(domains_task.compute()))
-    if verbose > 0: print(f"done ({t() - dt}s)")
-    domains_types_mapping = dict((o, idx) for idx, o in enumerate(domains_set))
-    del domains_set
+    result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
+
+    unique_hashtags = set(itertools.chain.from_iterable([result_tuple[0] for result_tuple in result_tuples]))
+    hashtags_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_hashtags))
+    unique_links = set(itertools.chain.from_iterable([result_tuple[1] for result_tuple in result_tuples]))
+    links_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_links))
+    unique_domains = set(itertools.chain.from_iterable([result_tuple[2] for result_tuple in result_tuples])) 
+    domains_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_domains))
+    unique_languages = set(itertools.chain.from_iterable([result_tuple[3] for result_tuple in result_tuples])) 
+    language_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_languages))
+    print("done")
+
+    del result_tuples, unique_hashtags, unique_links, unique_domains, unique_languages
     gc.collect()
 
 
@@ -169,52 +163,57 @@ def initial_preprocess_data(
         ddf["tweet_id"] = ddf[["tweet_id"]].map_partitions(partition_indexing, meta=pd.Series(dtype=np.uint32))
         ddf["tweet_id"] = ddf["tweet_id"].astype(np.uint32)
 
-    if add_bert_length_as_feature:
-        ddf["bert_length"] = ddf.map_partitions(_column_length, "bert_base_multilingual_cased_tokens", meta=pd.Series(dtype=np.uint32))
 
-    if seperate_bert or fully_drop_bert:
-        if not fully_drop_bert:
-            bert_dir = join(output_dir, "bert")
-            bert_ddf = ddf[["bert_base_multilingual_cased_tokens", "tweet_id"]]
-            bert_ddf.to_parquet(bert_dir)
-        ddf = ddf.drop("bert_base_multilingual_cased_tokens", axis="columns")
+    #From here we act on the individual partitions
+    if verbose > 0: print(f"Now outputting preprocessed tsv files to {nobert_dir}")
+    dt=t()
+    for idx, df in enumerate(ddf.partitions):#TODO: Here it would be possible to add multiprocessing
+        df = df.compute()
+        if add_bert_length_as_feature:
+            df["bert_length"] = df["bert_base_multilingual_cased_tokens"].apply(lambda x: len(str(x).split("\t")))
+        if seperate_bert or fully_drop_bert:
+            if not fully_drop_bert:
+                bert_dir = join(output_dir, "bert")
+                Path(bert_dir).mkdir(parents=True, exist_ok=True)
+                bert_df = df[["bert_base_multilingual_cased_tokens", "tweet_id"]]
+                bert_df.to_parquet(join(bert_dir), f"part-{idx:05}.parquet")
+            df = df.drop("bert_base_multilingual_cased_tokens", axis="columns")
+        if drop_tweet_id:
+            df = df.drop("tweet_id", axis="columns")
+        #Remove empties
+        df['reply']   = df['reply'].fillna(0)
+        df['retweet'] = df['retweet'].fillna(0)
+        df['retweet_comment'] = df['retweet_comment'].fillna(0)
+        df['like']    = df['like'].fillna(0)
 
-    if drop_tweet_id:
-        ddf = ddf.drop("tweet_id", axis="columns")
+        #Change dtypes
+        df["timestamp"] = df["timestamp"].astype(np.uint32)
+        df["a_follower_count"] = df["a_follower_count"].astype(np.uint32)
+        df["a_following_count"] = df["a_following_count"].astype(np.uint32)
+        df["a_account_creation"] = df["a_account_creation"].astype(np.uint32)
+        df["b_follower_count"] = df["b_follower_count"].astype(np.uint32)
+        df["b_following_count"] = df["b_following_count"].astype(np.uint32)
+        df["b_account_creation"] = df["b_account_creation"].astype(np.uint32)
+        df['reply'] = df['reply'].astype(np.uint32)
+        df['retweet'] = df['retweet'].astype(np.uint32)
+        df['retweet_comment'] = df['retweet_comment'].astype(np.uint32)
+        df['like'] = df['like'].astype(np.uint32)
 
-    #Remove empties
-    ddf['reply']   = ddf['reply'].fillna(0)
-    ddf['retweet'] = ddf['retweet'].fillna(0)
-    ddf['retweet_comment'] = ddf['retweet_comment'].fillna(0)
-    ddf['like']    = ddf['like'].fillna(0)
+        
+        df["type"] = df["type"].map(__type_mapping)
 
-    #Change dtypes
-    ddf["timestamp"] = ddf["timestamp"].astype(np.uint32)
-    ddf["a_follower_count"] = ddf["a_follower_count"].astype(np.uint32)
-    ddf["a_following_count"] = ddf["a_following_count"].astype(np.uint32)
-    ddf["a_account_creation"] = ddf["a_account_creation"].astype(np.uint32)
-    ddf["b_follower_count"] = ddf["b_follower_count"].astype(np.uint32)
-    ddf["b_following_count"] = ddf["b_following_count"].astype(np.uint32)
-    ddf["b_account_creation"] = ddf["b_account_creation"].astype(np.uint32)
-    ddf['reply'] = ddf['reply'].astype(np.uint32)
-    ddf['retweet'] = ddf['retweet'].astype(np.uint32)
-    ddf['retweet_comment'] = ddf['retweet_comment'].astype(np.uint32)
-    ddf['like'] = ddf['like'].astype(np.uint32)
+        df["language"] = df["language"].map(language_types_mapping)
 
-    ddf["type"] = ddf["type"].map_partitions(lambda x: x.apply(lambda y: __type_mapping[str(y)]), meta = pd.Series(dtype=np.uint32))
+        df['links'] = df["links"].apply(lambda x: [links_types_mapping[str(item)] for item in x])
 
-    ddf['links'] = ddf.map_partitions(_map_list_column, links_types_mapping, "links", meta=pd.Series(dtype=object))
+        df['domains'] = df["domains"].apply(lambda x: [domains_types_mapping[str(item)] for item in x])
 
-    ddf['domains'] = ddf.map_partitions(_map_list_column, domains_types_mapping, "domains", meta=pd.Series(dtype=object))
+        df['hashtags'] = df["hashtags"].apply(lambda x: [hashtags_types_mapping[str(item)] for item in x])
 
-    ddf['hashtags'] = ddf.map_partitions(_map_list_column, hashtags_types_mapping, "hashtags", meta=pd.Series(dtype=object))
+        df['medias'] = df["medias"].apply(lambda x: [__media_type_mapping[str(item)] for item in x])
 
-    ddf['medias'] = ddf.map_partitions(_map_list_column, media_types_mapping, "medias", meta=pd.Series(dtype=object))
-
-    if verbose > 0: print("Now executing main task... ", end="")
-    dt = t()
-    for idx, item in enumerate(ddf.partitions):
-        item = item.compute()
-        item.to_parquet(join(nobert_dir, f"part-{idx:05}.parquet"))
-    if verbose > 0: print(f"done ({t() - dt}s)")
-    if verbose > 0: print(f"Finished function ({t() - st}s total)")
+        df.to_parquet(join(nobert_dir, f"part-{idx:05}.parquet"))
+        
+        if verbose > 0: print(f"\rFinished {idx+1}/{ddf.npartitions}. ({t() - dt} s/it)", end="")
+        dt = t()
+    if verbose > 0: print()
