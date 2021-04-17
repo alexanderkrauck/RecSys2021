@@ -11,6 +11,7 @@ import os
 import yaml
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+# TODO: make the following 4 configurable
 COMP_DIR = os.path.join(ROOT_DIR, "compressed_data")
 UNCOMP_DIR = os.path.join(ROOT_DIR, "uncompressed_data")
 PREPRO_DIR = os.path.join(ROOT_DIR, "preprocessed")
@@ -55,11 +56,22 @@ single_column_features = {
 #TODO:    "post_time_diff": ([''])
 }
 
-def TE_dataframe_dask(df: dd.DataFrame, feature_name: str, target_name: str, w_smoothing: int = 20) -> dd.Series:
-    df[[target_name, feature_name]].groupby(feature_name).agg(cnt = pd.NamedAgg(column=target_name),
-                                                              mean)
-    df[target_name].count
-    return dd.Series()
+def TE_dataframe_dask(df: dd.DataFrame,
+                      feature_name: str,
+                      target_name: str,
+                      w_smoothing: int = 20,
+                      dt=np.float64) -> dd.Series:
+
+    counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
+    class_mean = df[target_name].mean()
+    TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*class_mean)/(cm["count"]+w_smoothing),
+                                    axis=1,
+                                    meta=('TE_map', dt)
+                                    )
+    TE_series = df[feature_name].apply(lambda feat: TE_map[feat],
+                                       meta=('TE_series', dt)
+                                       )
+    return TE_series    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
 
 def load_default_config() -> dict:
     with open(os.path.join(ROOT_DIR, "config.yaml")) as f:
@@ -119,12 +131,16 @@ def preprocess(config: dict = None) -> None:
 
         # TODO: would be nice to rehash userid to uint64 and other identifiers (especially 'language')
 
+        # TODO: apply log to numerical values
+
         # now drop the resulting dataframe to the location where we can find it again
-        futures_dump = ddf.to_parquet(os.path.join(PREPRO_DIR, 'dataset.*.parquet'), compute=False)
+        futures_dump = ddf.to_parquet(PREPRO_DIR, compute=False)
         # works under assumption that the local machine shares the file system with the dask client
         f = client.persist(futures_dump)
         progress(f)
-        print(f.compute())
+
+        if verbosity >= 1:
+            print("The uncompressed dataset is dumped to the disk.")
 
         # free up the memory
         del ddf, f
@@ -142,19 +158,29 @@ def preprocess(config: dict = None) -> None:
                                                   ))
 
     # then add the TEs as per configuration
+    te_features_series = []
+    for te_feature, te_target in config['TE_features'].items():
+        te_features_series.append(TE_dataframe_dask(
+            ddf,
+            te_feature,
+            te_target
+        ))
 
-    # test
-    a = ddf.groupby('a_is_verified').count()
-    # triggers compute
-#    futures_dump = ddf.to_parquet(os.path.join(PREPRO_DIR, 'dataset.*.parquet'), compute=False)
-#    f = client.persist(futures_dump)
-    fa = client.persist(a)
- #   progress(f)
-    progress(fa)
+    # TODO: collect marginal distributions on selected categorical columns
 
+    # TODO: collect mean/std on numerical columns
 
+    # join all the columns (but not with the old dataframe in order to not have to rewrite all of that to
+    #   the disk)
+    new_feature_frame = sc_features_series.pop(0).to_frame()
+    for featseries in sc_features_series+te_features_series:
+        new_feature_frame = dd.merge(new_feature_frame, featseries, left_index=True, right_index=True)
 
+    futures_dump = new_feature_frame.to_parquet(NEW_FEATURES_DIR, compute=False)
+    f = client.persist(futures_dump)
+    progress(f)
 
-
+    if verbosity >= 1:
+        print("Dumped to files.")
 
     return
