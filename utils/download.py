@@ -13,7 +13,8 @@ from os.path import join
 from pathlib import Path
 
 
-def download_data(url_file="training_urls.txt", output_dir="downloaded_data", uncompress=True, delete_compressed=True, verbose=1):
+def download_data(url_file="training_urls.txt", output_dir="downloaded_data", uncompress=True,
+                  delete_compressed=True, verbose=1, only_indices=None):
     """Download data from specified file (in the format from the website) to the directory specified    
 
     Parameters
@@ -28,6 +29,8 @@ def download_data(url_file="training_urls.txt", output_dir="downloaded_data", un
         If true then the compressed version of the data will be removed after extraction. (Requires "uncrompress" to be true)
     verbose : int
         Decides level of verboseness. (Max 1, Min 0)
+    only_indices : list
+        for partial downloads
     """ 
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -65,7 +68,7 @@ def fix_file_naming(file_dir: str):
     Parameters
     ----------
     file_dir : str
-        The directory where to do the opteration
+        The directory where to do the operation
     """
     for file in os.listdir(file_dir):
         if "@" in file:  # Windows
@@ -77,15 +80,19 @@ def fix_file_naming(file_dir: str):
             new_file = os.path.join(file_dir, file.split('?')[0])
             os.rename(old_file, new_file)
 
-def decompress_lzo_file(file_dir: str, delete_compressed=True, verbose=1):
+def decompress_lzo_file(file_dir: str, target_dir: str, delete_compressed=True, overwrite=False, verbose=1):
     """Decompress lzo files in the given directory
 
     Parameters
     ----------
     file_dir : str
-        The directory where to do the opteration
+        The directory that contains the lzo files
+    target_dir : str
+        The directory to extract to
     delete_compressed : bool
         If true then the compressed version of the data will be removed after extraction
+    overwrite : bool
+        If true then this will overwrite existing unpacked files
     verbose : int
         Decides level of verboseness. (Max 1, Min 0)
     """
@@ -94,12 +101,14 @@ def decompress_lzo_file(file_dir: str, delete_compressed=True, verbose=1):
     for file in files:
         if file.endswith(".lzo"):
             compressed_file = join(file_dir, f"{file}")
-            uncompress_filename = join(file_dir, f"{file[:-4]}.tsv")
-            if verbose > 0: print(f"Uncompressing {compressed_file}... ", end="")
-            os.system(f"lzop -o {uncompress_filename} -d {compressed_file}")
-            if verbose > 0: print("done")   
+            uncompress_filename = join(target_dir, f"{file[:-4]}.tsv")
 
-            if delete_compressed:
-                if verbose > 0: print(f"Deleting {compressed_file}... ", end="")
-                os.remove(compressed_file)
+            if not (os.path.exists(uncompress_filename) or overwrite):
+                if verbose > 0: print(f"Uncompressing {compressed_file}... ", end="")
+                os.system(f"lzop -o {uncompress_filename} -d {compressed_file}")
                 if verbose > 0: print("done")
+
+                if delete_compressed:
+                    if verbose > 0: print(f"Deleting {compressed_file}... ", end="")
+                    os.remove(compressed_file)
+                    if verbose > 0: print("done")

@@ -1,0 +1,17 @@
+verbose: 2
+chunksize: "128MB"
+# by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
+# actually quite a tricky thing to do, rule of thumb: more workers = more memory,
+# more threads per worker - more memory actually used by the worker
+n_workers: 3
+n_threads_per_worker: 2
+mem_lim: "3GB"
+# either 'comp' or 'parquet'
+# if parquet is used, stuff's gonna get appended to whatever is already there
+load_from: "comp"
+min_std_columns:
+  - ""
+basic_features:
+  - "has_reply"
+TE_features:
+  - {"": ""}
