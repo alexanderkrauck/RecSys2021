@@ -48,13 +48,14 @@ all_columns = all_features + all_labels
 
 single_column_features = {
     # name of the feature : ([required columns], function, output type)
-    "bert_text_len": (['bert_base_multilingual_cased_tokens'], lambda bertenc: len(bertenc.split('\t')), np.uint32),
-    "has_reply": (['reply'], lambda v: v > 0., np.bool8),
-    "has_retweet": (['retweet'], lambda v: v > 0., np.bool8),
-    "has_retweet_comment": (['retweet_comment'], lambda v: v > 0., np.bool8),
-    "has_like": (['like'], lambda v: v > 0., np.bool8),
+    "bert_text_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: len(bertenc.split('\t')), np.uint32),
+    "has_reply": ('reply', lambda v: v > 0., bool),
+    "has_retweet": ('retweet', lambda v: v > 0., bool),
+    "has_retweet_comment": ('retweet_comment', lambda v: v > 0., bool),
+    "has_like": ('like', lambda v: v > 0., bool),
 #TODO:    "post_time_diff": ([''])
 }
+
 
 def TE_dataframe_dask(df: dd.DataFrame,
                       feature_name: str,
@@ -63,19 +64,20 @@ def TE_dataframe_dask(df: dd.DataFrame,
                       dt=np.float64) -> dd.Series:
 
     counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
-    class_mean = df[target_name].mean()
-    TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*class_mean)/(cm["count"]+w_smoothing),
+    counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
+    TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*cm["total_mean"])/(cm["count"]+w_smoothing),
                                     axis=1,
-                                    meta=('TE_map', dt)
+                                    meta=('TE_'+feature_name+'_'+target_name, dt)
                                     )
-    TE_series = df[feature_name].apply(lambda feat: TE_map[feat],
-                                       meta=('TE_series', dt)
-                                       )
-    return TE_series    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
+    # the only way to vectorize this, joining on non-index - must be very costly
+    df = df.join(TE_map, on=feature_name, how='left')
+
+    return df    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
+
 
 def load_default_config() -> dict:
     with open(os.path.join(ROOT_DIR, "config.yaml")) as f:
-        return yaml.load(f)
+        return yaml.load(f, Loader=yaml.CLoader)
 
 
 def preprocess(config: dict = None) -> None:
@@ -110,6 +112,10 @@ def preprocess(config: dict = None) -> None:
 
         ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_columns, blocksize="128MB")
 
+        ddf["idx"] = 1
+        ddf["idx"] = ddf["idx"].cumsum()
+        ddf = ddf.set_index("idx")
+
         # do some basic maintenance of the dataset
         ddf["timestamp"] = ddf["timestamp"].astype(np.uint32)
         ddf["a_follower_count"] = ddf["a_follower_count"].astype(np.uint32)
@@ -131,13 +137,15 @@ def preprocess(config: dict = None) -> None:
 
         # TODO: would be nice to rehash userid to uint64 and other identifiers (especially 'language')
 
-        # TODO: apply log to numerical values
+        # TODO: apply log to numerical values (or not?)
+
 
         # now drop the resulting dataframe to the location where we can find it again
         futures_dump = ddf.to_parquet(PREPRO_DIR, compute=False)
         # works under assumption that the local machine shares the file system with the dask client
         f = client.persist(futures_dump)
         progress(f)
+        f.compute()
 
         if verbosity >= 1:
             print("The uncompressed dataset is dumped to the disk.")
@@ -147,40 +155,36 @@ def preprocess(config: dict = None) -> None:
 
     # default parameters work just fine
     ddf = dd.read_parquet(PREPRO_DIR)
+    original_cols = [col for col in ddf.columns]
 
     # first add the features as per configuration file
     sc_features_series = []
     for feature in config['basic_features']:
         cols, fun, dt = single_column_features[feature]
-        sc_features_series.append(ddf[cols].apply(fun,
-                                                  axis=1 if len(cols) > 1 else 0,
-                                                  meta=(feature, dt)
-                                                  ))
+        f_series = ddf[cols].apply(fun, meta=(feature, dt))#.to_frame()
+        ddf = dd.merge(ddf,
+                       f_series,
+                       how='inner',
+                       left_index=True,
+                       right_index=True)
 
     # then add the TEs as per configuration
-    te_features_series = []
     for te_feature, te_target in config['TE_features'].items():
-        te_features_series.append(TE_dataframe_dask(
-            ddf,
-            te_feature,
-            te_target
-        ))
+        ddf = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
 
     # TODO: collect marginal distributions on selected categorical columns
 
     # TODO: collect mean/std on numerical columns
 
-    # join all the columns (but not with the old dataframe in order to not have to rewrite all of that to
-    #   the disk)
-    new_feature_frame = sc_features_series.pop(0).to_frame()
-    for featseries in sc_features_series+te_features_series:
-        new_feature_frame = dd.merge(new_feature_frame, featseries, left_index=True, right_index=True)
-
-    futures_dump = new_feature_frame.to_parquet(NEW_FEATURES_DIR, compute=False)
+    new_feature_columns = [col for col in ddf.columns if col not in original_cols]
+    if verbosity >= 1:
+        print("The following preprocessed columns are dumped: ", new_feature_columns)
+    ddf = ddf[new_feature_columns]
+    futures_dump = ddf.to_parquet(NEW_FEATURES_DIR, compute=False)
     f = client.persist(futures_dump)
     progress(f)
 
     if verbosity >= 1:
-        print("Dumped to files.")
+        print("Dumped to files and done.")
 
     return

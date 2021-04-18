@@ -5,12 +5,12 @@ chunksize: "128MB"
 # actually quite a tricky thing to do, rule of thumb: more workers = more memory,
 # more threads per worker - more memory actually used by the worker
 # more memory - bigger toaster needed to run it
-n_workers: 3
+n_workers: 4
 n_threads_per_worker: 2
 mem_lim: "3GB"
 # either 'comp' or 'parquet'
 # if parquet is used, stuff's gonna get appended to whatever is already there
-load_from: "comp"
+load_from: "parquet"
 # categorical columns to compute the marginal probabilities for
 marginal_prob_columns:
   - ""
@@ -21,4 +21,4 @@ mean_std_columns:
 basic_features:
   - "has_reply"
 # target encodings to compute (as per the nvidia paper)
-TE_features: {"": "has_reply"}
+TE_features: {language: "has_reply"}
