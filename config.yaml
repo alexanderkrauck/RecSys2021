@@ -1,24 +1,46 @@
-verbose: 2
+verbose: 1
 # bump this thing up when we are on the cluster - it introduces overhead
 chunksize: "128MB"
 # by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
 # actually quite a tricky thing to do, rule of thumb: more workers = more memory,
 # more threads per worker - more memory actually used by the worker
 # more memory - bigger toaster needed to run it
-n_workers: 4
+# also more memory per worker and thread makes the computation more reliable
+# there is a scenario where the computation stops because the workers keep running out of memory and diying/idling.
+# I recommend at least 2GB per thread for reliable operation.
+n_workers: 2
 n_threads_per_worker: 2
-mem_lim: "3GB"
+mem_lim: "7GB"
 # either 'comp' or 'parquet'
 # if parquet is used, stuff's gonna get appended to whatever is already there
 load_from: "parquet"
-# categorical columns to compute the marginal probabilities for
-marginal_prob_columns:
-  - ""
-# numerical columns to compute mean and std for
+# TODO: numerical columns to compute mean and std for (do we actually need that)?
 mean_std_columns:
   - ""
-# basic features from the list to compute
+# basic features from the list to compute (computed in this order)
 basic_features:
   - "has_reply"
-# target encodings to compute (as per the nvidia paper)
+  - "bert_token_len"
+  - "has_retweet"
+  - "has_retweet_comment"
+  - "has_like"
+  - "n_photos"
+  - "n_videos"
+  - "n_gifs"
+  - "reply_age"
+# target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
 TE_features: {language: "has_reply"}
+# categorical columns to compute the marginal probabilities for
+marginal_prob_columns:
+  dump_to: "naive_features.csv"
+  features:
+    - "a_follows_b"
+    - "b_is_verified"
+    - "a_is_verified"
+    - "type"
+    - "language"
+  per_labels:
+    - "has_reply"
+    - "has_retweet"
+    - "has_retweet_comment"
+    - "has_like"
