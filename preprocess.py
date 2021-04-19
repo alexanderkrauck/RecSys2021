@@ -46,6 +46,38 @@ all_labels = ["reply",
               "retweet_comment",
               "like"]
 
+dtypes_of_features = {
+    "bert_base_multilingual_cased_tokens": str,
+    "hashtags": str,
+    "tweet_id": str,
+    "medias": str,
+    "links": str,
+    "domains": str,
+    "type": str,
+    "language": str,
+    "timestamp": np.uint32,
+    "a_user_id": str,
+    "a_follower_count": np.uint32,
+    "a_following_count": np.uint32,
+    "a_is_verified": bool,
+    "a_account_creation": np.uint32,
+    "b_user_id": str,
+    "b_follower_count": np.uint32,
+    "b_following_count": np.uint32,
+    "b_is_verified": bool,
+    "b_account_creation": np.uint32,
+    "a_follows_b": bool,
+    "reply": np.uint32,
+    "retweet": np.uint32,
+    "retweet_comment": np.uint32,
+    "like": np.uint32
+}
+
+converters_for_the_original_dataset = {
+    "tweet_id": lambda tid: int(tid[0:16], 16)
+    # TODO: convert other fields with hashes in them into integer types
+}
+
 all_columns = all_features + all_labels
 
 single_column_features = {
@@ -58,11 +90,17 @@ single_column_features = {
     "has_retweet": ('retweet', lambda v: v > 0., bool, 3),
     "has_retweet_comment": ('retweet_comment', lambda v: v > 0., bool, 3),
     "has_like": ('like', lambda v: v > 0., bool, 3),
-    "n_photos": ('medias', lambda v: Counter(v.split('\t'))['Photo'] if v else 0, np.uint32, 1),  # FIXME: filter the stuff more in the first stage
-    "n_videos": ('medias', lambda v: Counter(v.split('\t'))['Video'] if v else 0, np.uint32, 1),
-    "n_gifs": ('medias', lambda v: Counter(v.split('\t'))['GIF'] if v else 0, np.uint32, 1),
-    "reply_age": (['reply', 'timestamp', 'has_reply'], lambda df: (df['reply']-df['timestamp'])*df['has_reply'], np.uint32, 3)
+    "n_photos": ('medias', lambda v: Counter(v.split('\t'))['Photo'] if v else 0, np.uint8, 1),  # FIXME: filter the stuff more in the first stage
+    "n_videos": ('medias', lambda v: Counter(v.split('\t'))['Video'] if v else 0, np.uint8, 1),
+    "n_gifs": ('medias', lambda v: Counter(v.split('\t'))['GIF'] if v else 0, np.uint8, 1),
+    "reply_age": (['reply', 'timestamp', 'has_reply'], lambda df: (df['reply']-df['timestamp'])*df['has_reply'], np.uint32, 3),
+    "like_age": (['like', 'timestamp', 'has_like'], lambda df: (df['like']-df['timestamp'])*df['has_like'], np.uint32, 3),
+    "retweet_age": (['retweet', 'timestamp', 'has_retweet'], lambda df: (df['retweet']-df['timestamp'])*df['has_retweet'], np.uint32, 3),
+    "retweet_comment_age": (['retweet_comment', 'timestamp', 'has_retweet_comment'], lambda df: (df['retweet_comment']-df['timestamp'])*df['has_retweet_comment'], np.uint32, 3),
 }
+
+
+
 
 
 def TE_dataframe_dask(df: dd.DataFrame,
@@ -221,13 +259,17 @@ def preprocess(config: dict = None) -> Tuple[dd.DataFrame, delayed]:
         if verbosity >= 2:
             print(unpacked_files)
 
-        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_columns, blocksize="128MB")
+        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_columns, blocksize="128MB",
+                          dtype={},
+                          converters={}
+                          )  # TODO: add dtypes from above and converters
 
         ddf["idx"] = 1
         ddf["idx"] = ddf["idx"].cumsum()
         ddf = ddf.set_index("idx")
 
         # do some basic maintenance of the dataset
+        # TODO: convert bert encoding field etc.
         ddf["timestamp"] = ddf["timestamp"].astype(np.uint32)
         ddf["a_follower_count"] = ddf["a_follower_count"].astype(np.uint32)
         ddf["a_following_count"] = ddf["a_following_count"].astype(np.uint32)
