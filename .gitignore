@@ -143,3 +143,6 @@ dask-worker-space
 
 #URLs need to be updated regulary
 training_urls.txt
+
+#other
+language_priors_reply.csv
