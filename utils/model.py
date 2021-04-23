@@ -16,7 +16,7 @@ from torch import nn
 
 #Convention Imports
 from abc import ABC, abstractmethod
-from typing import Union, List, Tuple, Callable, Dict
+from typing import Union, List, Tuple, Callable, Dict, Iterable
 
 class RecSys2021BaseModel(ABC):
     """Base class to inherit from for the Recsys2021 challenge"""
@@ -37,7 +37,7 @@ class RecSys2021BaseModel(ABC):
 
         with open(output_file, 'w') as output:
             for tweet_ids, user_ids, batch in testLoader:
-                reply_preds, retweet_preds, retweet_comment_preds, like_preds = self.forward(batch)
+                reply_preds, retweet_preds, retweet_comment_preds, like_preds = self.infer(batch)
 
                 for tweet_id, user_id, reply_pred, retweet_pred, retweet_comment_pred, like_pred in \
                     zip(tweet_ids, user_ids, reply_preds, retweet_preds, retweet_comment_preds, like_preds):
@@ -46,8 +46,8 @@ class RecSys2021BaseModel(ABC):
         
     
     @abstractmethod
-    def forward(self, x: Union[List, torch.Tensor, Tuple, Dict]) -> Tuple:
-        """In the forward call the model should process 1 batch
+    def infer(self, x: Union[List, torch.Tensor, Tuple, Dict]) -> Tuple[Iterable, Iterable, Iterable, Iterable]:
+        """In the infer call the model should process 1 batch
         
         Parameters
         ----------
@@ -56,7 +56,8 @@ class RecSys2021BaseModel(ABC):
         
         Returns
         ----------
-        Tuple: (reply_preds, retweet_preds, retweet_comment_preds, like_preds)
+        batch_prediction: Tuple[Iterable, Iterable, Iterable, Iterable]
+            The biary predictions of (reply_preds, retweet_preds, retweet_comment_preds, like_preds).
         """
         
         raise NotImplementedError("This is abstract!")
@@ -91,6 +92,9 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
 
     def forward(self, x):
         return self.reply_net(x), self.retweet_net(x) ,self.retweet_comment_net(x), self.like_net(x)
+
+    def infer(self, x):
+        raise NotImplementedError("Implement this!")
 
 
 
