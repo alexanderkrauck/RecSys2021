@@ -10,7 +10,7 @@ chunksize: "128MB"
 # I recommend at least 2GB per thread for reliable operation.
 n_workers: 2
 n_threads_per_worker: 2
-mem_lim: "7GB"
+mem_lim: "4GB"
 # either 'comp', 'uncomp' or 'parquet'
 # if parquet is used, stuff's gonna get appended to whatever is already there
 load_from: "parquet"
@@ -28,8 +28,24 @@ basic_features:
   - "n_videos"
   - "n_gifs"
   - "reply_age"
+
+low_cardinality_rehash_features:
+  - "language"
+  - "type"
+
 # target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
-TE_features: {language: "has_reply"}
+TE_features: 
+    language: 
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+    type:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+  
 # categorical columns to compute the marginal probabilities for
 marginal_prob_columns:
   dump_to: "naive_features.csv"

@@ -11,6 +11,7 @@ from collections import Counter
 from typing import Union, List, Tuple, Callable, Dict
 import os
 from os.path import join
+from pathlib import Path
 import yaml
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -82,7 +83,6 @@ converters_for_the_original_dataset = {
 all_columns = all_features + all_labels
 
 single_column_features = {
-    # TODO: would be nice to rehash userid to uint64 and other identifiers (especially 'language')
     # TODO: apply log to numerical values (or not?)
     # name of the feature : ([required columns], function, output type,
     #   apply level (1: series lambda/apply, 2: df row lambda, 3: df map_partitions))
@@ -99,9 +99,6 @@ single_column_features = {
     "retweet_age": (['retweet', 'timestamp', 'has_retweet'], lambda df: (df['retweet']-df['timestamp'])*df['has_retweet'], np.uint32, 3),
     "retweet_comment_age": (['retweet_comment', 'timestamp', 'has_retweet_comment'], lambda df: (df['retweet_comment']-df['timestamp'])*df['has_retweet_comment'], np.uint32, 3),
 }
-
-
-
 
 
 def TE_dataframe_dask(df: dd.DataFrame,
@@ -261,10 +258,10 @@ def preprocess(
 
     
     #Set default directories if not specified (based on root dir)
-    if not comp_dir: comp_dir = join(ROOT_DIR, REL_COMP_DIR)
-    if not uncomp_dir: uncomp_dir = join(ROOT_DIR, REL_UNCOMP_DIR)
-    if not new_features_dir: new_features_dir = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
-    if not prepro_dir: prepro_dir = join(ROOT_DIR, REL_PREPRO_DIR)
+    if not comp_dir: comp_dir = join(root_dir, REL_COMP_DIR)
+    if not uncomp_dir: uncomp_dir = join(root_dir, REL_UNCOMP_DIR)
+    if not new_features_dir: new_features_dir = join(root_dir, REL_NEW_FEATURES_DIR)
+    if not prepro_dir: prepro_dir = join(root_dir, REL_PREPRO_DIR)
     
     #Load default config if not specified and extract required parameters
     if not config: config = load_default_config(root_dir)
@@ -273,7 +270,7 @@ def preprocess(
 
     ddf = None
     if data_source == 'comp' or data_source == "uncomp":
-        if datasource == 'comp':
+        if data_source == 'comp':
             # decompress lzo files to uncomp directory
             decompress_lzo_file(comp_dir, uncomp_dir, delete_compressed=False, overwrite=False, verbose=verbosity)
 
@@ -314,7 +311,7 @@ def preprocess(
 
         with get_dask_compute_environment(config) as client:
             # now drop the resulting dataframe to the location where we can find it again
-            futures_dump = ddf.to_parquet(PREPRO_DIR, compute=False)
+            futures_dump = ddf.to_parquet(prepro_dir, compute=False)
             # works under assumption that the local machine shares the file system with the dask client
             f = client.persist(futures_dump)
             if verbosity > 0:
@@ -349,9 +346,29 @@ def preprocess(
                        left_index=True,
                        right_index=True)
 
+    #factorize features with small cadinality
+    Path(new_features_dir).mkdir(exist_ok=True, parents=True)
+    with get_dask_compute_environment(config) as client:
+        for col in config["low_cardinality_rehash_features"]:
+            tmp_col = f'{col}_encode'
+            fut_tmp = ddf[col].unique()
+            fut_tmp = client.persist(fut_tmp)
+            if verbosity > 0:
+                progress(fut_tmp)
+            tmp = fut_tmp.compute()
+            tmp = tmp.to_frame().reset_index()
+            tmp.columns = [i if i!="index" else tmp_col for i in tmp.columns]
+            ddf = ddf.merge(tmp, on=col, how='left')
+            ddf[tmp_col] = ddf[tmp_col].astype('uint8')
+            mapping_output = join(new_features_dir, f"{col}_mapping.csv")
+            if verbosity >= 1: print(f"Outputing mapping for {col} to {mapping_output}")
+            tmp[[tmp_col, col]].to_csv(mapping_output)
+
+
     # then add the TEs as per configuration
-    for te_feature, te_target in config['TE_features'].items():
-        ddf = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
+    for te_feature, te_targets in config['TE_features'].items():
+        for te_target in te_targets:
+            ddf = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
 
     new_feature_columns = [col for col in ddf.columns if col not in original_cols]
     if verbosity >= 1:
