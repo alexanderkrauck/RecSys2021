@@ -11,7 +11,7 @@ chunksize: "128MB"
 n_workers: 2
 n_threads_per_worker: 2
 mem_lim: "7GB"
-# either 'comp' or 'parquet'
+# either 'comp', 'uncomp' or 'parquet'
 # if parquet is used, stuff's gonna get appended to whatever is already there
 load_from: "parquet"
 # TODO: numerical columns to compute mean and std for (do we actually need that)?

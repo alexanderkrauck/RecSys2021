@@ -10,15 +10,16 @@ import pandas as pd
 from collections import Counter
 from typing import Union, List, Tuple, Callable, Dict
 import os
+from os.path import join
 import yaml
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 # TODO: make the following 4 configurable and change the one above to getcwd() (might come quite handy on the server)
-COMP_DIR = os.path.join(ROOT_DIR, "compressed_data")
-UNCOMP_DIR = os.path.join(ROOT_DIR, "uncompressed_data")
-PREPRO_DIR = os.path.join(ROOT_DIR, "preprocessed")
+REL_COMP_DIR = "compressed_data"
+REL_UNCOMP_DIR = "uncompressed_data"
+REL_PREPRO_DIR = "preprocessed"
 # split them from the original features so that we dont have to rewrite the whole dataset to the disk every time
-NEW_FEATURES_DIR = os.path.join(ROOT_DIR, "preprocessed_features")
+REL_NEW_FEATURES_DIR = "preprocessed_features"
 
 all_features = ["bert_base_multilingual_cased_tokens",
                 "hashtags",
@@ -169,7 +170,11 @@ def conditional_probabilities(df: dd.DataFrame,
     return pp
 
 
-def load_all_preprocessed_data(only_new_features=False) -> dd.DataFrame:
+def load_all_preprocessed_data(
+        only_new_features=False,
+        prepro_dir: Union(os.PathLike, str) = join(ROOT_DIR, REL_PREPRO_DIR),
+        new_features_dir: Union(os.PathLike, str) = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
+    ) -> dd.DataFrame:
     '''
 
     Parameters
@@ -182,15 +187,15 @@ def load_all_preprocessed_data(only_new_features=False) -> dd.DataFrame:
         A lazy dataframe that has the original preprocessed features and new computed features loaded
     '''
     if not only_new_features:
-        original_df = dd.read_parquet(PREPRO_DIR)
-        extra_features_df = dd.read_parquet(NEW_FEATURES_DIR)
+        original_df = dd.read_parquet(prepro_dir)
+        extra_features_df = dd.read_parquet(new_features_dir)
         return dd.merge(original_df, extra_features_df, how='inner', left_index=True, right_index=True)  # on index, so fast
     else:
-        return dd.read_parquet(NEW_FEATURES_DIR)
+        return dd.read_parquet(new_features_dir)
 
 
-def load_default_config() -> dict:
-    with open(os.path.join(ROOT_DIR, "config.yaml")) as f:
+def load_default_config(root_dir: Union(os.PathLike, str) = ROOT_DIR) -> dict:
+    with open(os.path.join(root_dir, "config.yaml")) as f:
         return yaml.load(f, Loader=yaml.CLoader)
 
 
@@ -226,13 +231,24 @@ def get_dask_compute_environment(config: dict = None) -> Client:
     return client
 
 
-def preprocess(config: dict = None) -> Tuple[dd.DataFrame, delayed]:
+def preprocess(
+        config: dict = None,
+        root_dir: Union(os.PathLike, str) = ROOT_DIR,
+        comp_dir: Union(os.PathLike, str) = None,
+        uncomp_dir: Union(os.PathLike, str) = None,
+        new_features_dir: Union(os.PathLike, str) = None,
+        prepro_dir: Union(os.PathLike, str) = None 
+    ) -> Tuple[dd.DataFrame, delayed]:
     '''
 
     Parameters
     ----------
-    config
+    config: dict
         configuration dictionary from the yaml file
+    comp_dir: Union(os.PathLike, str)
+        The location of the compressed data.
+
+    
     Returns
     -------
         lazy dataframe that contains all of the features, can be used for more computations if desired
@@ -242,20 +258,28 @@ def preprocess(config: dict = None) -> Tuple[dd.DataFrame, delayed]:
         progress(f)
         f.compute()     # gathers the result
     '''
-    if not config:
-        config = load_default_config()
 
+    
+    #Set default directories if not specified (based on root dir)
+    if not comp_dir: comp_dir = join(ROOT_DIR, REL_COMP_DIR)
+    if not uncomp_dir: uncomp_dir = join(ROOT_DIR, REL_UNCOMP_DIR)
+    if not new_features_dir: new_features_dir = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
+    if not prepro_dir: prepro_dir = join(ROOT_DIR, REL_PREPRO_DIR)
+    
+    #Load default config if not specified and extract required parameters
+    if not config: config = load_default_config(root_dir)
     verbosity = config['verbose']
     data_source = config['load_from']
 
     ddf = None
-    if data_source == 'comp':
-        # decompress lzo files
-        decompress_lzo_file(COMP_DIR, UNCOMP_DIR, delete_compressed=False, overwrite=False, verbose=verbosity)
+    if data_source == 'comp' or data_source == "uncomp":
+        if datasource == 'comp':
+            # decompress lzo files to uncomp directory
+            decompress_lzo_file(comp_dir, uncomp_dir, delete_compressed=False, overwrite=False, verbose=verbosity)
 
         # start with reading the files lazily and locally, assume they are uncompressed
-        unpacked_files = [os.path.join(UNCOMP_DIR, f)
-                          for f in os.listdir(UNCOMP_DIR) if os.path.isfile(os.path.join(UNCOMP_DIR, f))]
+        unpacked_files = [os.path.join(uncomp_dir, f)
+                          for f in os.listdir(uncomp_dir) if os.path.isfile(os.path.join(uncomp_dir, f))]
         if verbosity >= 2:
             print(unpacked_files)
 
@@ -304,7 +328,7 @@ def preprocess(config: dict = None) -> Tuple[dd.DataFrame, delayed]:
         del ddf, f
 
     # default parameters work just fine
-    ddf = dd.read_parquet(PREPRO_DIR)
+    ddf = dd.read_parquet(prepro_dir)
     original_cols = [col for col in ddf.columns]
 
     # first add the features as per configuration file
@@ -332,7 +356,7 @@ def preprocess(config: dict = None) -> Tuple[dd.DataFrame, delayed]:
     new_feature_columns = [col for col in ddf.columns if col not in original_cols]
     if verbosity >= 1:
         print("The following preprocessed columns are dumped: ", new_feature_columns)
-    delayed_dump = ddf[new_feature_columns].to_parquet(NEW_FEATURES_DIR, compute=False)
+    delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False)
 
     if verbosity >= 1:
         print("Feature generation ready, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
