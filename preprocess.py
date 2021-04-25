@@ -172,8 +172,8 @@ def conditional_probabilities(df: dd.DataFrame,
 
 def load_all_preprocessed_data(
         only_new_features=False,
-        prepro_dir: Union(os.PathLike, str) = join(ROOT_DIR, REL_PREPRO_DIR),
-        new_features_dir: Union(os.PathLike, str) = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
+        prepro_dir: Union[os.PathLike, str] = join(ROOT_DIR, REL_PREPRO_DIR),
+        new_features_dir: Union[os.PathLike, str] = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
     ) -> dd.DataFrame:
     '''
 
@@ -194,8 +194,8 @@ def load_all_preprocessed_data(
         return dd.read_parquet(new_features_dir)
 
 
-def load_default_config(root_dir: Union(os.PathLike, str) = ROOT_DIR) -> dict:
-    with open(os.path.join(root_dir, "config.yaml")) as f:
+def load_default_config(root_dir: Union[os.PathLike, str] = ROOT_DIR) -> dict:
+    with open(join(root_dir, "config.yaml")) as f:
         return yaml.load(f, Loader=yaml.CLoader)
 
 
@@ -233,11 +233,11 @@ def get_dask_compute_environment(config: dict = None) -> Client:
 
 def preprocess(
         config: dict = None,
-        root_dir: Union(os.PathLike, str) = ROOT_DIR,
-        comp_dir: Union(os.PathLike, str) = None,
-        uncomp_dir: Union(os.PathLike, str) = None,
-        new_features_dir: Union(os.PathLike, str) = None,
-        prepro_dir: Union(os.PathLike, str) = None 
+        root_dir: Union[os.PathLike, str] = ROOT_DIR,
+        comp_dir: Union[os.PathLike, str] = None,
+        uncomp_dir: Union[os.PathLike, str] = None,
+        new_features_dir: Union[os.PathLike, str] = None,
+        prepro_dir: Union[os.PathLike, str] = None 
     ) -> Tuple[dd.DataFrame, delayed]:
     '''
 
@@ -278,8 +278,8 @@ def preprocess(
             decompress_lzo_file(comp_dir, uncomp_dir, delete_compressed=False, overwrite=False, verbose=verbosity)
 
         # start with reading the files lazily and locally, assume they are uncompressed
-        unpacked_files = [os.path.join(uncomp_dir, f)
-                          for f in os.listdir(uncomp_dir) if os.path.isfile(os.path.join(uncomp_dir, f))]
+        unpacked_files = [join(uncomp_dir, f)
+                          for f in os.listdir(uncomp_dir) if os.path.isfile(join(uncomp_dir, f))]
         if verbosity >= 2:
             print(unpacked_files)
 
