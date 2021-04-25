@@ -1,4 +1,4 @@
-from preprocess import preprocess, get_dask_compute_environment, load_all_preprocessed_data
+from utils.preprocess import preprocess, get_dask_compute_environment, load_all_preprocessed_data
 from dask.distributed import progress
 
 

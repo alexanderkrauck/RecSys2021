@@ -1,29 +1,28 @@
-"""
-Utility functions for preprocessing files from the RecSys2020 Servers
+from utils.download import decompress_lzo_file
 
-"""
-
-__author__ = "Alexander Krauck"
-__email__ = "alexander.krauck@gmail.com"
-__date__ = "08-03-2021"
-
-
-import os
-import gc
-from os.path import join
-from pathlib import Path
-import itertools
-from time import time as t
+from dask import dataframe as dd
+from dask.distributed import Client, progress
+from dask import delayed
 
 import numpy as np
-
 import pandas as pd
-import dask
-import dask.dataframe as dd
-from dask.diagnostics import ProgressBar
 
+from collections import Counter
+from typing import Union, List, Tuple, Callable, Dict
+import os
+from os.path import join
+from pathlib import Path
+import yaml
 
-__all_features = ["bert_base_multilingual_cased_tokens",
+ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+# TODO: make the following 4 configurable and change the one above to getcwd() (might come quite handy on the server)
+REL_COMP_DIR = "compressed_data"
+REL_UNCOMP_DIR = "uncompressed_data"
+REL_PREPRO_DIR = "preprocessed"
+# split them from the original features so that we dont have to rewrite the whole dataset to the disk every time
+REL_NEW_FEATURES_DIR = "preprocessed_features"
+
+all_features = ["bert_base_multilingual_cased_tokens",
                 "hashtags",
                 "tweet_id",
                 "medias",
@@ -42,182 +41,362 @@ __all_features = ["bert_base_multilingual_cased_tokens",
                 "b_following_count",
                 "b_is_verified",
                 "b_account_creation",
-                "a_follows_b"] #as far as I know from the forum (b always follows a in this dataset according to the forum)
+                "a_follows_b"]
 
-__all_labels = ["reply",
+all_labels = ["reply",
               "retweet",
               "retweet_comment",
               "like"]
 
-__all_columns = __all_features + __all_labels
+dtypes_of_features = {
+    "bert_base_multilingual_cased_tokens": str,
+    "hashtags": str,
+    "tweet_id": str,
+    "medias": str,
+    "links": str,
+    "domains": str,
+    "type": str,
+    "language": str,
+    "timestamp": np.uint32,
+    "a_user_id": str,
+    "a_follower_count": np.uint32,
+    "a_following_count": np.uint32,
+    "a_is_verified": bool,
+    "a_account_creation": np.uint32,
+    "b_user_id": str,
+    "b_follower_count": np.uint32,
+    "b_following_count": np.uint32,
+    "b_is_verified": bool,
+    "b_account_creation": np.uint32,
+    "a_follows_b": bool,
+    "reply": np.uint32,
+    "retweet": np.uint32,
+    "retweet_comment": np.uint32,
+    "like": np.uint32
+}
 
-__type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}
+converters_for_the_original_dataset = {
+    "tweet_id": lambda tid: int(tid[0:16], 16)
+    # TODO: convert other fields with hashes in them into integer types
+}
 
-__media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
+all_columns = all_features + all_labels
 
-#Helper Functions
-def _partition_indexing(df, partition_info=None):
-    df["tweet_id"] = 1
-    df["tweet_id"] = df["tweet_id"].cumsum()
-    #This is not a stable choice but will work well with 64MB data splits
-    df["tweet_id"] = df["tweet_id"] + partition_info["number"] * 200000 
-    return df["tweet_id"]
-
-def _collect_unique_items(df):
-    hashtags = list(set([a for b in df["hashtags"].tolist() for a in b]))
-    links = list(set([a for b in df["links"].tolist() for a in b]))
-    domains = list(set([a for b in df["domains"].tolist() for a in b]))
-    languages = list(set(df["language"].tolist()))
-
-    return (hashtags, links, domains, languages)
-
-def _map_list_column(df, mapping, column_name):
-    new_column = df[column_name].apply(lambda x: [mapping[str(item)] for item in x])
-    return new_column
-
-def _column_length(df, column_name):
-    column = df[column_name]
-    return column.apply(lambda x: len(str(x).split("\t")))
+single_column_features = {
+    # TODO: apply log to numerical values (or not?)
+    # name of the feature : ([required columns], function, output type,
+    #   apply level (1: series lambda/apply, 2: df row lambda, 3: df map_partitions))
+    "bert_token_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: len(bertenc.split('\t')), np.uint32, 1),
+    "has_reply": ('reply', lambda v: v > 0., bool, 3),
+    "has_retweet": ('retweet', lambda v: v > 0., bool, 3),
+    "has_retweet_comment": ('retweet_comment', lambda v: v > 0., bool, 3),
+    "has_like": ('like', lambda v: v > 0., bool, 3),
+    "n_photos": ('medias', lambda v: Counter(v.split('\t'))['Photo'] if v else 0, np.uint8, 1),  # FIXME: filter the stuff more in the first stage
+    "n_videos": ('medias', lambda v: Counter(v.split('\t'))['Video'] if v else 0, np.uint8, 1),
+    "n_gifs": ('medias', lambda v: Counter(v.split('\t'))['GIF'] if v else 0, np.uint8, 1),
+    "reply_age": (['reply', 'timestamp', 'has_reply'], lambda df: (df['reply']-df['timestamp'])*df['has_reply'], np.uint32, 3),
+    "like_age": (['like', 'timestamp', 'has_like'], lambda df: (df['like']-df['timestamp'])*df['has_like'], np.uint32, 3),
+    "retweet_age": (['retweet', 'timestamp', 'has_retweet'], lambda df: (df['retweet']-df['timestamp'])*df['has_retweet'], np.uint32, 3),
+    "retweet_comment_age": (['retweet_comment', 'timestamp', 'has_retweet_comment'], lambda df: (df['retweet_comment']-df['timestamp'])*df['has_retweet_comment'], np.uint32, 3),
+}
 
 
-def initial_preprocess_data(
-        csv_path: str,
-        output_dir: str,
-        convert_tweet_id_to_number: bool,
-        seperate_bert: bool,
-        fully_drop_bert: bool,
-        drop_tweet_id: bool,
-        add_bert_length_as_feature: bool = True,
-        blocksize: str = "64MB",
-        verbose: int = 1
-        #TODO: REPLACE USER IDS BY NUMBERS, COLLECT FEATURES THAT REQUIRE STATISTICS OVER MULTIPLE PART FILES
-    ):
-    """A helper function for the initial heavy processing of the data (will take a bit)
-    
-    It is recommended to (at least in the the exploration phase) only include a subset of the data,
-    since it will take very long otherwise.
+def TE_dataframe_dask(df: dd.DataFrame,
+                      feature_name: str,
+                      target_name: str,
+                      w_smoothing: int = 20,
+                      dt=np.float64) -> dd.Series:
+
+    counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
+    counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
+    TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*cm["total_mean"])/(cm["count"]+w_smoothing),
+                                    axis=1,
+                                    meta=('TE_'+feature_name+'_'+target_name, dt)
+                                    )
+    # the only way to vectorize this, joining on non-index - must be somewhat costly
+    df = df.join(TE_map, on=feature_name, how='left')
+
+    return df    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
+
+
+def conditional_probabilities_as_per_config(df: dd.DataFrame,
+                                            config: dict = None):
+    if not config:
+        config = load_default_config()
+
+    verbosity = config['verbose']
+    features = config['marginal_prob_columns']['features']
+    labels = config['marginal_prob_columns']['per_labels']
+
+    with get_dask_compute_environment(config) as client:
+        delayed_series = conditional_probabilities(df, features, labels)
+        delayed_op = dd.to_csv(delayed_series, compute=False)
+        f = client.persist(delayed_op)
+        if verbosity > 0:
+            progress(f)
+        f.compute()
+
+    return
+
+
+def conditional_probabilities(df: dd.DataFrame,
+                              features: List[str],
+                              labels: List[str]) -> dd.Series:
+    '''
 
     Parameters
     ----------
-    csv_path : str
-        The description path of the data. ('*' is allowed, we load multiple files at the same time)
-    output_dir : str
-        The output directory, where the parquet-chunkfiles will be stored
-    convert_tweet_id_to_number : bool
-        If true the tweet id will be replaced by a unique number, however there will be gaps and this is also unstable
-        TODO: make it stable
-    seperate_bert : bool
-        If true, the BERT column will be seperated into another file which can be joined again over the "tweet_id" field
-    fully_drop_bert : bool
-        Overrides "seperate_bert". If true, then the BERT column will be dropped and it will not be kept at all.
-    drop_tweet_id : bool
-        If true the tweet id will be dropped. Also this means that we can not locate the BERT encodings anymore if they are seperated.
-        It makes no sense to have "convert_tweet_id_to_number" enabled if this is true.
-    add_bert_length_as_feature: bool
-        If true then the number of tokens in the bert column will be stored as the new column "bert_length".
-    blocksize : str
-        The blocksize in which the data of in the path will be split. If this is chosen to high, the memory will become full.
-    verbose : int
-        Decides level of verboseness. (Max 1, Min 0)
-    """
-    st = t()
-    nobert_dir = join(output_dir,"nobert")
-    Path(nobert_dir).mkdir(parents=True, exist_ok=True)
+    df
+        Dask Dataframe with the data
+    features
+        the categorical feature labels that are to be included in the computation
+    labels
+        the categorical labels that are to be included in the computation
+
+    Returns
+    -------
+        A lazy series, indexed on values of features and labels and contains the conditional probabilities of
+            the features.
+    '''
+    # FIXME: does not support supplying new features only due the usage of tweet_id, find or make another column that
+    #   works well as an omnipresent pivot
+    marg = df[labels+["tweet_id"]].groupby(labels)["tweet_id"].count().rename('marginal').to_frame() # because tweet_id is always there
+    joint = df[labels+features+['tweet_id']].groupby(labels+features)['tweet_id'].count().rename('joint').to_frame()
+    lp = joint.join(marg, on=labels, how='left')
+    pp = lp.joint / lp.marginal
+    return pp
 
 
-    ddf = dd.read_csv(csv_path, sep='\x01', header=None, names=__all_columns, blocksize=blocksize)
-    if verbose > 0: print(f"The data is split into {ddf.npartitions} partitions of size {blocksize} each.")
+def load_all_preprocessed_data(
+        only_new_features=False,
+        prepro_dir: Union[os.PathLike, str] = join(ROOT_DIR, REL_PREPRO_DIR),
+        new_features_dir: Union[os.PathLike, str] = join(ROOT_DIR, REL_NEW_FEATURES_DIR)
+    ) -> dd.DataFrame:
+    '''
 
-    ddf['medias'] = ddf['medias'].fillna("")
-    ddf['medias'] = ddf['medias'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-
-
-    ddf['hashtags'] = ddf['hashtags'].fillna("")
-    ddf['hashtags'] = ddf['hashtags'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-
-    ddf['links'] = ddf['links'].fillna("")
-    ddf['links'] = ddf['links'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-
-    ddf['domains'] = ddf['domains'].fillna("")
-    ddf['domains'] = ddf['domains'].map_partitions(lambda x: list(x.str.split("\t")), meta=list)
-
-
-    if verbose > 0: print("Now computing unique column elements... ")
-    if verbose > 0:
-        with ProgressBar():
-            result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
+    Parameters
+    ----------
+    only_new_features
+        loading the whole thing might prove pretty heavy, sometimes loading just the preprocessed features is just
+            as fine
+    Returns
+    -------
+        A lazy dataframe that has the original preprocessed features and new computed features loaded
+    '''
+    if not only_new_features:
+        original_df = dd.read_parquet(prepro_dir)
+        extra_features_df = dd.read_parquet(new_features_dir)
+        return dd.merge(original_df, extra_features_df, how='inner', left_index=True, right_index=True)  # on index, so fast
     else:
-        result_tuples = ddf.map_partitions(_collect_unique_items, meta=tuple).compute()
-
-    unique_hashtags = set(itertools.chain.from_iterable([result_tuple[0] for result_tuple in result_tuples]))
-    hashtags_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_hashtags))
-    unique_links = set(itertools.chain.from_iterable([result_tuple[1] for result_tuple in result_tuples]))
-    links_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_links))
-    unique_domains = set(itertools.chain.from_iterable([result_tuple[2] for result_tuple in result_tuples])) 
-    domains_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_domains))
-    unique_languages = set(itertools.chain.from_iterable([result_tuple[3] for result_tuple in result_tuples])) 
-    language_types_mapping =  dict((o, idx) for idx, o in enumerate(unique_languages))
-    print("done")
-
-    del result_tuples, unique_hashtags, unique_links, unique_domains, unique_languages
-    gc.collect()
+        return dd.read_parquet(new_features_dir)
 
 
-    if convert_tweet_id_to_number:
-        ddf["tweet_id"] = ddf[["tweet_id"]].map_partitions(partition_indexing, meta=pd.Series(dtype=np.uint32))
-        ddf["tweet_id"] = ddf["tweet_id"].astype(np.uint32)
+def load_default_config(root_dir: Union[os.PathLike, str] = ROOT_DIR) -> dict:
+    with open(join(root_dir, "default_config.yaml")) as f:
+        return yaml.load(f, Loader=yaml.CLoader)
 
 
-    #From here we act on the individual partitions
-    if verbose > 0: print(f"Now outputting preprocessed tsv files to {nobert_dir}")
-    dt=t()
-    for idx, df in enumerate(ddf.partitions):#TODO: Here it would be possible to add multiprocessing
-        df = df.compute()
-        if add_bert_length_as_feature:
-            df["bert_length"] = df["bert_base_multilingual_cased_tokens"].apply(lambda x: len(str(x).split("\t")))
-        if seperate_bert or fully_drop_bert:
-            if not fully_drop_bert:
-                bert_dir = join(output_dir, "bert")
-                Path(bert_dir).mkdir(parents=True, exist_ok=True)
-                bert_df = df[["bert_base_multilingual_cased_tokens", "tweet_id"]]
-                bert_df.to_parquet(join(bert_dir), f"part-{idx:05}.parquet")
-            df = df.drop("bert_base_multilingual_cased_tokens", axis="columns")
-        if drop_tweet_id:
-            df = df.drop("tweet_id", axis="columns")
-        #Remove empties
-        df['reply']   = df['reply'].fillna(0)
-        df['retweet'] = df['retweet'].fillna(0)
-        df['retweet_comment'] = df['retweet_comment'].fillna(0)
-        df['like']    = df['like'].fillna(0)
+def get_dask_compute_environment(config: dict = None) -> Client:
+    '''
 
-        #Change dtypes
-        df["timestamp"] = df["timestamp"].astype(np.uint32)
-        df["a_follower_count"] = df["a_follower_count"].astype(np.uint32)
-        df["a_following_count"] = df["a_following_count"].astype(np.uint32)
-        df["a_account_creation"] = df["a_account_creation"].astype(np.uint32)
-        df["b_follower_count"] = df["b_follower_count"].astype(np.uint32)
-        df["b_following_count"] = df["b_following_count"].astype(np.uint32)
-        df["b_account_creation"] = df["b_account_creation"].astype(np.uint32)
-        df['reply'] = df['reply'].astype(np.uint32)
-        df['retweet'] = df['retweet'].astype(np.uint32)
-        df['retweet_comment'] = df['retweet_comment'].astype(np.uint32)
-        df['like'] = df['like'].astype(np.uint32)
+    Parameters
+    ----------
+    config
+        config.yaml
+    Returns
+    -------
+        a client object that is already set as default in the current context
+    '''
+    if not config:
+        config = load_default_config()
+
+    verbosity = config['verbose']
+    client_n_workers = config['n_workers']
+    client_n_threads = config['n_threads_per_worker']
+    client_memlim = config['mem_lim']
+
+    # initialize a client according to the configuration and make it local
+    client = Client(memory_limit=client_memlim,
+                    n_workers=client_n_workers,
+                    threads_per_worker=client_n_threads,
+                    processes=True)
+    client.as_current()     # this assigns all the operations implicitly to this client, I believe.
+
+    if verbosity >= 1:
+        print("Compute environment established: {}".format(client))
+
+    return client
+
+
+def preprocess(
+        config: dict = None,
+        root_dir: Union[os.PathLike, str] = ROOT_DIR,
+        comp_dir: Union[os.PathLike, str] = None,
+        uncomp_dir: Union[os.PathLike, str] = None,
+        new_features_dir: Union[os.PathLike, str] = None,
+        prepro_dir: Union[os.PathLike, str] = None 
+    ) -> Tuple[dd.DataFrame, delayed]:
+    '''
+
+    Parameters
+    ----------
+    config: dict
+        configuration dictionary from the yaml file
+    comp_dir: Union(os.PathLike, str)
+        The location of the compressed data.
+
+    
+    Returns
+    -------
+        lazy dataframe that contains all of the features, can be used for more computations if desired
+        delayed object that needs to be computed in an environment of choice in order for the files to be produced
+        e.g.
+        f = client.persist(futures_dump)
+        progress(f)
+        f.compute()     # gathers the result
+    '''
+
+    
+    #Set default directories if not specified (based on root dir)
+    if not comp_dir: comp_dir = join(root_dir, REL_COMP_DIR)
+    if not uncomp_dir: uncomp_dir = join(root_dir, REL_UNCOMP_DIR)
+    if not new_features_dir: new_features_dir = join(root_dir, REL_NEW_FEATURES_DIR)
+    if not prepro_dir: prepro_dir = join(root_dir, REL_PREPRO_DIR)
+    
+    #Load default config if not specified and extract required parameters
+    if not config: config = load_default_config(root_dir)
+    verbosity = config['verbose']
+    data_source = config['load_from']
+
+    ddf = None
+    if data_source == 'comp' or data_source == "uncomp":
+        if data_source == 'comp':
+            # decompress lzo files to uncomp directory
+            decompress_lzo_file(comp_dir, uncomp_dir, delete_compressed=False, overwrite=False, verbose=verbosity)
+
+        # start with reading the files lazily and locally, assume they are uncompressed
+        unpacked_files = [join(uncomp_dir, f)
+                          for f in os.listdir(uncomp_dir) if os.path.isfile(join(uncomp_dir, f))]
+        if verbosity >= 2:
+            print(unpacked_files)
+
+        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_columns, blocksize="128MB",
+                          dtype={},
+                          converters={}
+                          )  # TODO: add dtypes from above and converters
+
 
         
-        df["type"] = df["type"].map(__type_mapping)
+        #if verbosity > 0: print("Indexing Files")
+        #with get_dask_compute_environment(config) as client: 
+        #    ddf_fut = ddf.set_index("idx", compute=False)
+        #    f = client.persist(ddf_fut)
+        #    ddf_fut.persist()
+        #    if verbosity > 0:
+        #        progress(f)
+        #    f.compute()
 
-        df["language"] = df["language"].map(language_types_mapping)
+        # do some basic maintenance of the dataset
+        # TODO: convert bert encoding field etc.
+        ddf["timestamp"] = ddf["timestamp"].astype(np.uint32)
+        ddf["a_follower_count"] = ddf["a_follower_count"].astype(np.uint32)
+        ddf["a_following_count"] = ddf["a_following_count"].astype(np.uint32)
+        ddf["a_account_creation"] = ddf["a_account_creation"].astype(np.uint32)
+        ddf["b_follower_count"] = ddf["b_follower_count"].astype(np.uint32)
+        ddf["b_following_count"] = ddf["b_following_count"].astype(np.uint32)
+        ddf["b_account_creation"] = ddf["b_account_creation"].astype(np.uint32)
 
-        df['links'] = df["links"].apply(lambda x: [links_types_mapping[str(item)] for item in x])
+        ddf['reply'] = ddf['reply'].fillna(0)
+        ddf['retweet'] = ddf['retweet'].fillna(0)
+        ddf['retweet_comment'] = ddf['retweet_comment'].fillna(0)
+        ddf['like'] = ddf['like'].fillna(0)
 
-        df['domains'] = df["domains"].apply(lambda x: [domains_types_mapping[str(item)] for item in x])
+        ddf['reply'] = ddf['reply'].astype(np.uint32)
+        ddf['retweet'] = ddf['retweet'].astype(np.uint32)
+        ddf['retweet_comment'] = ddf['retweet_comment'].astype(np.uint32)
+        ddf['like'] = ddf['like'].astype(np.uint32)
 
-        df['hashtags'] = df["hashtags"].apply(lambda x: [hashtags_types_mapping[str(item)] for item in x])
-
-        df['medias'] = df["medias"].apply(lambda x: [__media_type_mapping[str(item)] for item in x])
-
-        df.to_parquet(join(nobert_dir, f"part-{idx:05}.parquet"))
+        #Not sure if this is really necessary since this is just changing dtypes and writing to parquet for later use
         
-        if verbose > 0: print(f"\rFinished {idx+1}/{ddf.npartitions}. ({t() - dt} s/it)", end="")
-        dt = t()
-    if verbose > 0: print()
+
+        if verbosity > 0: print("Outputting preprocessed files")
+        with get_dask_compute_environment(config) as client:
+            ddf["idx"] = 1
+            ddf["idx"] = ddf["idx"].cumsum()
+            #ddf_fut = ddf.set_index("idx", sorted=True, compute=False)
+            #f = client.persist(ddf_fut)
+            #if verbosity > 0:
+            #    progress(f)
+            #ddf = f.compute()
+            print("Indexing finished")
+
+            # now drop the resulting dataframe to the location where we can find it again
+            futures_dump = ddf.to_parquet(prepro_dir, compute=False)
+            # works under assumption that the local machine shares the file system with the dask client
+            f = client.persist(futures_dump)
+            if verbosity > 0:
+                progress(f)
+            f.compute()
+
+        if verbosity >= 1:
+            print("The uncompressed dataset is saved to the disk.")
+
+        # free up the memory
+        del ddf, f
+
+    # default parameters work just fine
+    ddf = dd.read_parquet(prepro_dir, index="idx")
+    original_cols = [col for col in ddf.columns]
+
+    # first add the features as per configuration file
+    sc_features_series = []
+    for feature in config['basic_features']:
+        cols, fun, dt, iterlevel = single_column_features[feature]
+        if iterlevel == 1:
+            f_series = ddf[cols].apply(fun, meta=(feature, dt))
+        elif iterlevel == 2:
+            f_series = ddf[cols].to_frame().apply(fun, axis=1, meta=(feature, dt))
+        elif iterlevel == 3:
+            f_series = ddf[cols].map_partitions(fun, meta=(feature, dt))
+        else:
+            raise ValueError("Wrong iterlevel.")
+        ddf = dd.merge(ddf,
+                       f_series,
+                       how='inner',
+                       left_index=True,
+                       right_index=True)
+
+    #factorize features with small cadinality
+    Path(new_features_dir).mkdir(exist_ok=True, parents=True)
+    with get_dask_compute_environment(config) as client:
+        for col in config["low_cardinality_rehash_features"]:
+            tmp_col = f'{col}_encode'
+            fut_tmp = ddf[col].unique()
+            fut_tmp = client.persist(fut_tmp)
+            if verbosity > 0:
+                progress(fut_tmp)
+            tmp = fut_tmp.compute()
+            tmp = tmp.to_frame().reset_index()
+            tmp.columns = [i if i!="index" else tmp_col for i in tmp.columns]
+            ddf = ddf.merge(tmp, on=col, how='left')
+            ddf[tmp_col] = ddf[tmp_col].astype('uint8')
+            mapping_output = join(new_features_dir, f"{col}_mapping.csv")
+            if verbosity >= 1: print(f"Outputing mapping for {col} to {mapping_output}")
+            tmp[[tmp_col, col]].to_csv(mapping_output)
+
+
+    # then add the TEs as per configuration
+    for te_feature, te_targets in config['TE_features'].items():
+        for te_target in te_targets:
+            ddf = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
+
+    new_feature_columns = [col for col in ddf.columns if col not in original_cols]
+    if verbosity >= 1:
+        print("The following preprocessed columns are dumped: ", new_feature_columns)
+    delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False)
+
+    if verbosity >= 1:
+        print("Feature generation ready, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
+
+    return ddf, delayed_dump
+
