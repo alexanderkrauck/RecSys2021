@@ -21,6 +21,7 @@ mean_std_columns:
 basic_features:
   - "has_reply"
   - "bert_token_len"
+  #- "bert_char_len" #takes long with current preprocess!
   - "has_retweet"
   - "has_retweet_comment"
   - "has_like"

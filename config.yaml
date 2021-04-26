@@ -45,6 +45,16 @@ TE_features:
       - "has_like"
       - "has_retweet_comment"
       - "has_retweet"
+    #tweet_id:
+    #  - "has_reply"
+    #  - "has_like"
+    #  - "has_retweet_comment"
+    #  - "has_retweet"
+    #b_user_id:
+    #  - "has_reply"
+    #  - "has_like"
+    #  - "has_retweet_comment"
+    #  - "has_retweet"
   
 # categorical columns to compute the marginal probabilities for
 marginal_prob_columns:
