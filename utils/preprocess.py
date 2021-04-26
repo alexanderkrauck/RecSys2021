@@ -14,6 +14,10 @@ from os.path import join
 from pathlib import Path
 import yaml
 
+from transformers import BertTokenizer
+
+tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
+
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 # TODO: make the following 4 configurable and change the one above to getcwd() (might come quite handy on the server)
 REL_COMP_DIR = "compressed_data"
@@ -75,6 +79,10 @@ dtypes_of_features = {
     "like": np.uint32
 }
 
+__type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}
+
+__media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
+
 converters_for_the_original_dataset = {
     "tweet_id": lambda tid: int(tid[0:16], 16)
     # TODO: convert other fields with hashes in them into integer types
@@ -98,6 +106,8 @@ single_column_features = {
     "like_age": (['like', 'timestamp', 'has_like'], lambda df: (df['like']-df['timestamp'])*df['has_like'], np.uint32, 3),
     "retweet_age": (['retweet', 'timestamp', 'has_retweet'], lambda df: (df['retweet']-df['timestamp'])*df['has_retweet'], np.uint32, 3),
     "retweet_comment_age": (['retweet_comment', 'timestamp', 'has_retweet_comment'], lambda df: (df['retweet_comment']-df['timestamp'])*df['has_retweet_comment'], np.uint32, 3),
+    "bert_char_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: len(tokenizer.convert_tokens_to_string(tokenizer.convert_ids_to_tokens(bertenc.split("\t")))), np.uint16, 1)
+    "type_encoding": ('type', lambda type: __type_mapping["type"]), np.uint8, 1)
 }
 
 
@@ -192,9 +202,11 @@ def load_all_preprocessed_data(
 
 
 def load_default_config(root_dir: Union[os.PathLike, str] = ROOT_DIR) -> dict:
-    with open(join(root_dir, "default_config.yaml")) as f:
-        return yaml.load(f, Loader=yaml.CLoader)
+    return load_config(join(root_dir, "default_config.yaml"))
 
+def load_config(file_path: Union[os.PathLike, str]) -> dict:
+    with open(file_path) as f:
+        return yaml.load(f, Loader=yaml.CLoader)
 
 def get_dask_compute_environment(config: dict = None) -> Client:
     '''
@@ -286,15 +298,9 @@ def preprocess(
                           )  # TODO: add dtypes from above and converters
 
 
-        
-        #if verbosity > 0: print("Indexing Files")
-        #with get_dask_compute_environment(config) as client: 
-        #    ddf_fut = ddf.set_index("idx", compute=False)
-        #    f = client.persist(ddf_fut)
-        #    ddf_fut.persist()
-        #    if verbosity > 0:
-        #        progress(f)
-        #    f.compute()
+        #Add unique id for indexing
+        ddf["idx"] = 1
+        ddf["idx"] = ddf["idx"].cumsum()
 
         # do some basic maintenance of the dataset
         # TODO: convert bert encoding field etc.
@@ -321,15 +327,6 @@ def preprocess(
 
         if verbosity > 0: print("Outputting preprocessed files")
         with get_dask_compute_environment(config) as client:
-            ddf["idx"] = 1
-            ddf["idx"] = ddf["idx"].cumsum()
-            #ddf_fut = ddf.set_index("idx", sorted=True, compute=False)
-            #f = client.persist(ddf_fut)
-            #if verbosity > 0:
-            #    progress(f)
-            #ddf = f.compute()
-            print("Indexing finished")
-
             # now drop the resulting dataframe to the location where we can find it again
             futures_dump = ddf.to_parquet(prepro_dir, compute=False)
             # works under assumption that the local machine shares the file system with the dask client
@@ -347,7 +344,6 @@ def preprocess(
     # default parameters work just fine
     ddf = dd.read_parquet(prepro_dir, index="idx")
     original_cols = [col for col in ddf.columns]
-
     # first add the features as per configuration file
     sc_features_series = []
     for feature in config['basic_features']:
@@ -367,29 +363,28 @@ def preprocess(
                        right_index=True)
 
     #factorize features with small cadinality
-    Path(new_features_dir).mkdir(exist_ok=True, parents=True)
-    with get_dask_compute_environment(config) as client:
-        for col in config["low_cardinality_rehash_features"]:
-            tmp_col = f'{col}_encode'
-            fut_tmp = ddf[col].unique()
-            fut_tmp = client.persist(fut_tmp)
-            if verbosity > 0:
-                progress(fut_tmp)
-            tmp = fut_tmp.compute()
-            tmp = tmp.to_frame().reset_index()
-            tmp.columns = [i if i!="index" else tmp_col for i in tmp.columns]
-            ddf = ddf.merge(tmp, on=col, how='left')
-            ddf[tmp_col] = ddf[tmp_col].astype('uint8')
-            mapping_output = join(new_features_dir, f"{col}_mapping.csv")
-            if verbosity >= 1: print(f"Outputing mapping for {col} to {mapping_output}")
-            tmp[[tmp_col, col]].to_csv(mapping_output)
+    # Path(new_features_dir).mkdir(exist_ok=True, parents=True)
+    # with get_dask_compute_environment(config) as client:
+    #     for col in config["low_cardinality_rehash_features"]:
+    #         tmp_col = f'{col}_encode'
+    #         fut_tmp = ddf[col].unique()
+    #         fut_tmp = client.persist(fut_tmp)
+    #         if verbosity > 0:
+    #             progress(fut_tmp)
+    #         tmp = fut_tmp.compute()
+    #         tmp = tmp.to_frame().reset_index()
+    #         tmp.columns = [i if i!="index" else tmp_col for i in tmp.columns]
+    #         ddf = ddf.merge(tmp, on=col, how='left')
+    #         ddf[tmp_col] = ddf[tmp_col].astype('uint8')
+    #         mapping_output = join(new_features_dir, f"{col}_mapping.csv")
+    #         if verbosity >= 1: print(f"Outputing mapping for {col} to {mapping_output}")
+    #         tmp[[tmp_col, col]].to_csv(mapping_output)
 
 
     # then add the TEs as per configuration
     for te_feature, te_targets in config['TE_features'].items():
         for te_target in te_targets:
             ddf = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
-
     new_feature_columns = [col for col in ddf.columns if col not in original_cols]
     if verbosity >= 1:
         print("The following preprocessed columns are dumped: ", new_feature_columns)
