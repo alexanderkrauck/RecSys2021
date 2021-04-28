@@ -115,10 +115,11 @@ def TE_dataframe_dask(df: dd.DataFrame,
                       feature_name: str,
                       target_name: str,
                       w_smoothing: int = 20,
-                      dt=np.float64) -> dd.Series:
-
-    counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
-    counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
+                      dt=np.float64,
+                      counts_and_means: dd.DataFrame = None) -> dd.Series:
+    if not counts_and_means:
+        counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
+        counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
     TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*cm["total_mean"])/(cm["count"]+w_smoothing),
                                     axis=1,
                                     meta=('TE_'+feature_name+'_'+target_name, dt)
@@ -126,7 +127,7 @@ def TE_dataframe_dask(df: dd.DataFrame,
     # the only way to vectorize this, joining on non-index - must be somewhat costly
     df = df.join(TE_map, on=feature_name, how='left')
 
-    return df    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
+    return df, counts_and_means    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
 
 
 def conditional_probabilities_as_per_config(df: dd.DataFrame,

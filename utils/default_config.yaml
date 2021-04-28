@@ -1,27 +1,38 @@
 verbose: 1
-# bump this thing up when we are on the cluster - it introduces overhead
-chunksize: "128MB"
-# by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
-# actually quite a tricky thing to do, rule of thumb: more workers = more memory,
-# more threads per worker - more memory actually used by the worker
-# more memory - bigger toaster needed to run it
-# also more memory per worker and thread makes the computation more reliable
-# there is a scenario where the computation stops because the workers keep running out of memory and diying/idling.
-# I recommend at least 2GB per thread for reliable operation.
-n_workers: 2
-n_threads_per_worker: 2
-mem_lim: "4GB"
-# either 'comp', 'uncomp' or 'parquet'
-# if parquet is used, stuff's gonna get appended to whatever is already there
-load_from: "parquet"
-# TODO: numerical columns to compute mean and std for (do we actually need that)?
-mean_std_columns:
-  - ""
+mop:
+  # set to false when preprocessing the test set, then the manifest and other stuff is used differently
+  train_set: true
+  # if true the features will not be recomputed from scratch
+  additive_preprocessing: true
+  preprocessing_manifest: "./prepro_manifest.yaml"
+  # directory where the statistics necessary to compute everything are placed
+  prepro_statistics_dir: "feature_stats"
+  # directory where the features will be dumped
+  feature_dir: "preprocessed_features"
+  # directories for the corresponding states of the original data
+  preprocessed_dir: "preprocessed"
+  compressed_dir: "compressed_data"
+  uncompressed_dir: "uncompressed_data"
+  # either 'comp', 'uncomp' or 'parquet', if parquet is used, stuff's gonna get appended to whatever is already there
+  load_from: "parquet"
+compute:
+  # bump this thing up when we are on the cluster - it introduces overhead
+  chunksize: "128MB"
+  # by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
+  # actually quite a tricky thing to do, rule of thumb: more workers = more memory,
+  # more threads per worker - more memory actually used by the worker
+  # more memory - bigger toaster needed to run it
+  # also more memory per worker and thread makes the computation more reliable
+  # there is a scenario where the computation stops because the workers keep running out of memory and diying/idling.
+  # I recommend at least 2GB per thread for reliable operation.
+  n_workers: 2
+  n_threads_per_worker: 2
+  mem_lim: "4GB"
+
 # basic features from the list to compute (computed in this order)
 basic_features:
   - "has_reply"
   - "bert_token_len"
-  #- "bert_char_len" #takes long with current preprocess!
   - "has_retweet"
   - "has_retweet_comment"
   - "has_like"
@@ -30,22 +41,19 @@ basic_features:
   - "n_gifs"
   - "reply_age"
 
-low_cardinality_rehash_features:
-  - "language"
-  - "type"
-
 # target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
-TE_features: 
-    language: 
-      - "has_reply"
-      - "has_like"
-      - "has_retweet_comment"
-      - "has_retweet"
-    type:
-      - "has_reply"
-      - "has_like"
-      - "has_retweet_comment"
-      - "has_retweet"
+TE_smoothing_factor: 20
+TE_features:
+  language:
+    - "has_reply"
+    - "has_like"
+    - "has_retweet_comment"
+    - "has_retweet"
+  type:
+    - "has_reply"
+    - "has_like"
+    - "has_retweet_comment"
+    - "has_retweet"
   
 # categorical columns to compute the marginal probabilities for
 marginal_prob_columns:
