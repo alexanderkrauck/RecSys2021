@@ -34,16 +34,19 @@ def conditional_probabilities_as_per_config(df: dd.DataFrame,
 
 
 def load_all_preprocessed_data(
-        only_new_features: bool = False,
+        new_features: bool = False,
+        old_features: bool = True,
         mop_config: Dict = None
     ) -> dd.DataFrame:
     '''
 
     Parameters
     ----------
-    only_new_features
-        loading the whole thing might prove pretty heavy, sometimes loading just the preprocessed features is just
-            as fine
+    mop_config : object
+    new_features bool
+        whether to load the synthetic features
+    old_features : bool
+        whether to load the original features
     Returns
     -------
         A lazy dataframe that has the original preprocessed features and new computed features loaded
@@ -54,12 +57,16 @@ def load_all_preprocessed_data(
     prepro_dir = os.path.join(COMP_DIR, mop_config['preprocessed_dir'])
     new_features_dir = os.path.join(COMP_DIR, mop_config['feature_dir'])
 
-    if not only_new_features:
-        original_df = dd.read_parquet(prepro_dir)
-        extra_features_df = dd.read_parquet(new_features_dir)
+    if new_features and old_features:
+        original_df = dd.read_parquet(prepro_dir, index="idx")
+        extra_features_df = dd.read_parquet(new_features_dir, index="idx")
         return dd.merge(original_df, extra_features_df, how='inner', left_index=True, right_index=True)  # on index, so fast
+    elif new_features:
+        return dd.read_parquet(prepro_dir, index="idx")
+    elif old_features:
+        return dd.read_parquet(new_features_dir, index="idx")
     else:
-        return dd.read_parquet(new_features_dir)
+        raise Exception('Life is vane, you send me to get no data.')
 
 
 def get_dask_compute_environment(comp_config: dict = None) -> Client:

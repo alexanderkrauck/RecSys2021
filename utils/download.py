@@ -11,7 +11,8 @@ __date__ = "08-03-2021"
 import os
 from os.path import join
 from pathlib import Path
-
+from typing import Union, Tuple
+from datetime import datetime
 
 def download_data(url_file="training_urls.txt", output_dir="downloaded_data", uncompress=True,
                   delete_compressed=True, verbose=1, only_indices=None):
@@ -62,6 +63,7 @@ def download_data(url_file="training_urls.txt", output_dir="downloaded_data", un
                         if verbose > 0: print("done")
                 idx += 1
 
+
 def fix_file_naming(file_dir: str):
     """Remove the unwanted part of the filename
 
@@ -79,6 +81,7 @@ def fix_file_naming(file_dir: str):
             old_file = os.path.join(file_dir, file)
             new_file = os.path.join(file_dir, file.split('?')[0])
             os.rename(old_file, new_file)
+
 
 def decompress_lzo_file(file_dir: str, target_dir: str, delete_compressed=True, overwrite=False, verbose=1):
     """Decompress lzo files in the given directory
@@ -112,3 +115,50 @@ def decompress_lzo_file(file_dir: str, target_dir: str, delete_compressed=True, 
                     if verbose > 0: print(f"Deleting {compressed_file}... ", end="")
                     os.remove(compressed_file)
                     if verbose > 0: print("done")
+
+
+def readable_time_now() -> str:
+    '''
+
+    Returns
+    -------
+        current time in a readable format
+    '''
+    return datetime.now().strftime('%m_%d_%H_%M')
+
+
+def shelf_directory(dir_path: Union[os.PathLike, str]) -> str:
+    '''
+
+    Parameters
+    ----------
+    dir_path: path/string
+        the directory to be renamed
+    Returns
+    -------
+        the new name with readable timestamp that the directory was renamed to
+    '''
+    if os.path.exists(dir_path) and os.path.isdir(dir_path):
+        new_path = str(dir_path)+readable_time_now()
+        os.rename(dir_path, new_path)
+    os.mkdir(dir_path)
+
+    return new_path
+
+
+def ensure_dir_exists(dir_path: Union[os.PathLike, str]) -> bool:
+    '''
+
+    Parameters
+    ----------
+    dir_path
+        directory path
+    Returns
+    -------
+        True if the directory already existed before
+    '''
+    if os.path.exists(dir_path):
+        return True
+    else:
+        os.mkdir(dir_path)
+        return False

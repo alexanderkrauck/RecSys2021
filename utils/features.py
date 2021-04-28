@@ -1,5 +1,6 @@
 import numpy as np
 from collections import Counter
+from typing import Tuple
 from constants import __media_type_mapping, __type_mapping
 
 import dask.dataframe as dd
@@ -30,18 +31,22 @@ single_column_features = {
 }
 
 
+def TE_get_name(feature_name: str, target_name: str) -> str:
+    return 'TE_'+feature_name+'_'+target_name
+
+
 def TE_dataframe_dask(df: dd.DataFrame,
                       feature_name: str,
                       target_name: str,
                       w_smoothing: int = 20,
                       dt=np.float64,
-                      counts_and_means: dd.DataFrame = None) -> dd.Series:
+                      counts_and_means: dd.DataFrame = None) -> Tuple[dd.DataFrame]:
     if not counts_and_means:
         counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
         counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
     TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*cm["total_mean"])/(cm["count"]+w_smoothing),
                                     axis=1,
-                                    meta=('TE_'+feature_name+'_'+target_name, dt)
+                                    meta=(TE_get_name(feature_name, target_name), dt)
                                     )
     # the only way to vectorize this, joining on non-index - must be somewhat costly
     df = df.join(TE_map, on=feature_name, how='left')

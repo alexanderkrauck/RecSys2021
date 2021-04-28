@@ -12,11 +12,11 @@ import os
 from os.path import join
 from pathlib import Path
 
-from constants import COMP_DIR
+from constants import COMP_DIR, is_label
 from config import load_feature_config, load_mop_config, load_compute_config, load_manifest, dump_manifest
-from compute_and_front import uncompress_and_parquetize
+from compute_and_front import uncompress_and_parquetize, load_all_preprocessed_data
 from features import single_column_features, conditional_probabilities, TE_dataframe_dask
-
+from download import shelf_directory, ensure_dir_exists
 
 def preprocess(
         config: dict = None,
@@ -64,17 +64,36 @@ def preprocess(
     if data_source == 'comp' or data_source == "uncomp":
         uncompress_and_parquetize(config)
 
+    # if we are not doing additive, then shelf the new feature directory
+    if not mop_config['additive_preprocessing']:
+        shelf_directory(new_features_dir)
+    else:
+        ensure_dir_exists(new_features_dir)
+    ensure_dir_exists(stat_dir)
+
+
     # default parameters work just fine
-    ddf = dd.read_parquet(prepro_dir, index="idx")
+    ddf = load_all_preprocessed_data(new_features = mop_config['additive_preprocessing'],
+                                     old_features = True,
+                                     mop_config = mop_config)
     other_delayed = []
     manifest = {'available_features': [],
                 'TE_stats': {}} if train_set_mode else load_manifest(os.path.join(comp_dir, mop_config['manifesto']))
     original_cols = [col for col in ddf.columns]
 
+
     # first add the features as per configuration file
-    sc_features_series = []
     for feature in config['basic_features']:
+        # so that we do not recompute features when in additive mode
+        if feature in original_cols and mop_config['additive_preprocessing']:
+            continue
+            # otherwise the feature must not exist as we do not load
         cols, fun, dt, iterlevel = single_column_features[feature]
+        # so that we do not attempt to preprocess the labels which we do not have in the test set
+        if any([is_label(col) for col in cols]) and not train_set_mode:
+            continue
+
+        # apply to the corresponding iterlevel
         if iterlevel == 1:
             f_series = ddf[cols].apply(fun, meta=(feature, dt))
         elif iterlevel == 2:
@@ -83,6 +102,8 @@ def preprocess(
             f_series = ddf[cols].map_partitions(fun, meta=(feature, dt))
         else:
             raise ValueError("Wrong iterlevel.")
+
+        # join with the dataset on index
         ddf = dd.merge(ddf,
                        f_series,
                        how='inner',     # TODO: investigate if this should be changed to left
@@ -112,6 +133,7 @@ def preprocess(
     for te_feature, te_targets in config['TE_features'].items():
         for te_target in te_targets:
             if train_set_mode:
+                # for the training set generate the counts and means and lazily dump them into corresponding files
                 ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
                 cnm.to_parquet()
             else:

@@ -1,6 +1,7 @@
 import numpy as np
 import os
 from collections import Counter
+from typing import Tuple, List, Dict
 
 all_features = ["bert_base_multilingual_cased_tokens",
                 "hashtags",
@@ -54,6 +55,11 @@ dtypes_of_features = {
     "retweet_comment": np.uint32,
     "like": np.uint32
 }
+
+
+def is_label(col_name: str) -> bool:
+    return col_name in all_labels
+
 
 __type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}
 
