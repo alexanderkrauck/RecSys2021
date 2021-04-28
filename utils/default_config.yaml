@@ -15,6 +15,7 @@ mop:
   uncompressed_dir: "uncompressed_data"
   # either 'comp', 'uncomp' or 'parquet', if parquet is used, stuff's gonna get appended to whatever is already there
   load_from: "parquet"
+  manifesto: "pp_manifest.yaml"
 compute:
   # bump this thing up when we are on the cluster - it introduces overhead
   chunksize: "128MB"
@@ -29,43 +30,44 @@ compute:
   n_threads_per_worker: 2
   mem_lim: "4GB"
 
-# basic features from the list to compute (computed in this order)
-basic_features:
-  - "has_reply"
-  - "bert_token_len"
-  - "has_retweet"
-  - "has_retweet_comment"
-  - "has_like"
-  - "n_photos"
-  - "n_videos"
-  - "n_gifs"
-  - "reply_age"
+features:
+  # basic features from the list to compute (computed in this order)
+  basic_features:
+    - "has_reply"
+    - "bert_token_len"
+    - "has_retweet"
+    - "has_retweet_comment"
+    - "has_like"
+    - "n_photos"
+    - "n_videos"
+    - "n_gifs"
+    - "reply_age"
 
-# target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
-TE_smoothing_factor: 20
-TE_features:
-  language:
-    - "has_reply"
-    - "has_like"
-    - "has_retweet_comment"
-    - "has_retweet"
-  type:
-    - "has_reply"
-    - "has_like"
-    - "has_retweet_comment"
-    - "has_retweet"
-  
-# categorical columns to compute the marginal probabilities for
-marginal_prob_columns:
-  dump_to: "naive_features.csv"
-  features:
-    - "a_follows_b"
-    - "b_is_verified"
-    - "a_is_verified"
-    - "type"
-    - "language"
-  per_labels:
-    - "has_reply"
-    - "has_retweet"
-    - "has_retweet_comment"
-    - "has_like"
+  # target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
+  TE_smoothing_factor: 20
+  TE_features:
+    language:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+    type:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+
+  # categorical columns to compute the marginal probabilities for
+  marginal_prob_columns:
+    dump_to: "naive_features.csv"
+    features:
+      - "a_follows_b"
+      - "b_is_verified"
+      - "a_is_verified"
+      - "type"
+      - "language"
+    per_labels:
+      - "has_reply"
+      - "has_retweet"
+      - "has_retweet_comment"
+      - "has_like"
