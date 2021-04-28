@@ -109,6 +109,8 @@ def preprocess(
                        left_index=True,
                        right_index=True)
 
+        manifest['available_features'].append(feature)
+
     #factorize features with small cardinality
     # Path(new_features_dir).mkdir(exist_ok=True, parents=True)
     # with get_dask_compute_environment(config) as client:
@@ -134,25 +136,33 @@ def preprocess(
             if train_set_mode:
                 # for the training set generate the counts and means and lazily dump them into corresponding files
                 ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
+
                 fname = TE_get_name(te_feature, te_target)
                 stat_path = os.path.join(stat_dir, TE_get_name)
                 ensure_dir_exists(stat_path)
                 other_delayed.append(cnm.to_parquet(stat_path, compute=False))
+
+                manifest['TE_stats'][fname] = fname
             else:
                 # load the cnm if preprocessing targets
                 fname = TE_get_name(te_feature, te_target)
-                stat_path = os.path.join(stat_dir, TE_get_name)
+                stat_path = os.path.join(stat_dir, manifest['TE_stats'][fname])
                 cnm = dd.read_parquet(stat_path)
                 # use them to compute TEs for the dataframe
-                ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target)  # already joins in the function
+                ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target, counts_and_means=cnm)
+                # already joins in the function
 
     new_feature_columns = [col for col in ddf.columns if col not in original_cols]
     if verbosity >= 1:
-        print("The following preprocessed columns are dumped: ", new_feature_columns)
+        print("The following preprocessed columns can be dumped: ", new_feature_columns)
     delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False)
 
+    # save the manifest if in train mode
+    if train_set_mode:
+        dump_manifest(manifest)
+
     if verbosity >= 1:
-        print("Feature generation ready, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
+        print("Feature generation ready, manifest dumped, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
 
     # can compute just the ddf for the dataframe itself or the other two if full dump is needed
     return ddf, delayed_dump, other_delayed
