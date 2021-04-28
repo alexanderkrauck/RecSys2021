@@ -15,7 +15,7 @@ from pathlib import Path
 from constants import COMP_DIR, is_label
 from config import load_feature_config, load_mop_config, load_compute_config, load_manifest, dump_manifest
 from compute_and_front import uncompress_and_parquetize, load_all_preprocessed_data
-from features import single_column_features, conditional_probabilities, TE_dataframe_dask
+from features import single_column_features, conditional_probabilities, TE_dataframe_dask, TE_get_name
 from download import shelf_directory, ensure_dir_exists
 
 def preprocess(
@@ -70,7 +70,6 @@ def preprocess(
     else:
         ensure_dir_exists(new_features_dir)
     ensure_dir_exists(stat_dir)
-
 
     # default parameters work just fine
     ddf = load_all_preprocessed_data(new_features = mop_config['additive_preprocessing'],
@@ -135,11 +134,17 @@ def preprocess(
             if train_set_mode:
                 # for the training set generate the counts and means and lazily dump them into corresponding files
                 ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target)       # already joins in the function
-                cnm.to_parquet()
+                fname = TE_get_name(te_feature, te_target)
+                stat_path = os.path.join(stat_dir, TE_get_name)
+                ensure_dir_exists(stat_path)
+                other_delayed.append(cnm.to_parquet(stat_path, compute=False))
             else:
-                cnm = dd.read_parquet()
+                # load the cnm if preprocessing targets
+                fname = TE_get_name(te_feature, te_target)
+                stat_path = os.path.join(stat_dir, TE_get_name)
+                cnm = dd.read_parquet(stat_path)
+                # use them to compute TEs for the dataframe
                 ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target)  # already joins in the function
-
 
     new_feature_columns = [col for col in ddf.columns if col not in original_cols]
     if verbosity >= 1:
@@ -149,5 +154,6 @@ def preprocess(
     if verbosity >= 1:
         print("Feature generation ready, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
 
-    return ddf, delayed_dump
+    # can compute just the ddf for the dataframe itself or the other two if full dump is needed
+    return ddf, delayed_dump, other_delayed
 
