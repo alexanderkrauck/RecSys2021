@@ -1,7 +1,7 @@
 import numpy as np
 from collections import Counter
 from typing import Tuple
-from constants import __media_type_mapping, __type_mapping
+from .constants import __media_type_mapping, __type_mapping
 
 import dask.dataframe as dd
 from typing import List

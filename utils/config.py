@@ -1,7 +1,7 @@
 import yaml
 from typing import Union, Dict
 import os
-from constants import FILE_DIR
+from .constants import FILE_DIR
 
 
 def load_config(file_path: Union[os.PathLike, str] = None) -> dict:
@@ -16,7 +16,7 @@ def load_config(file_path: Union[os.PathLike, str] = None) -> dict:
         Configuration as a nested dictionary.
     '''
     if not file_path:
-        file_path = os.join(FILE_DIR, "default_config.yaml")
+        file_path = os.path.join(os.path.dirname(FILE_DIR), "default_config.yaml")
     with open(file_path) as f:
         return yaml.load(f, Loader=yaml.CLoader)
 
@@ -40,7 +40,7 @@ def load_mop_config(file_path: Union[os.PathLike, str] = None, cfg: Dict = None)
 def load_feature_config(file_path: Union[os.PathLike, str] = None, cfg: Dict = None) -> dict:
     if not cfg:
         cfg = load_config(file_path)
-    retcfg = cfg['mop']
+    retcfg = cfg['features']
     retcfg['verbose'] = cfg['verbose']
     return retcfg
 

@@ -3,7 +3,7 @@ mop:
   # set to false when preprocessing the test set, then the manifest and other stuff is used differently
   train_set: true
   # if true the features will not be recomputed from scratch
-  additive_preprocessing: true
+  additive_preprocessing: false
   preprocessing_manifest: "./prepro_manifest.yaml"
   # directory where the statistics necessary to compute everything are placed
   prepro_statistics_dir: "feature_stats"
@@ -15,7 +15,7 @@ mop:
   uncompressed_dir: "uncompressed_data"
   # either 'comp', 'uncomp' or 'parquet', if parquet is used, stuff's gonna get appended to whatever is already there
   load_from: "parquet"
-  manifesto: "pp_manifest.yaml"
+  manifesto: "generated_manifest.yaml"
 compute:
   # bump this thing up when we are on the cluster - it introduces overhead
   chunksize: "128MB"
