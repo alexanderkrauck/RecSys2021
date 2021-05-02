@@ -12,7 +12,7 @@ import os
 from os.path import join
 from pathlib import Path
 
-from .constants import COMP_DIR, is_label
+from .constants import COMP_DIR, any_labels, all_features, all_labels
 from .config import load_feature_config, load_mop_config, load_compute_config, load_manifest, dump_manifest
 from .compute_and_front import uncompress_and_parquetize, load_all_preprocessed_data
 from .features import single_column_features, conditional_probabilities, TE_dataframe_dask, TE_get_name
@@ -76,8 +76,11 @@ def preprocess(
                                      old_features=True,
                                      mop_config=mop_config)
     other_delayed = []
-    manifest = {'available_features': [],
+    manifest = {'available_columns': {'features': all_features.copy()},
                 'TE_stats': {}} if train_set_mode else load_manifest(os.path.join(comp_dir, mop_config['manifesto']))
+    if train_set_mode:
+        # if loading a training set, include the targets
+        manifest['available_columns']['targets'] = all_labels.copy()
     original_cols = [col for col in ddf.columns]
 
 
@@ -89,8 +92,15 @@ def preprocess(
             # otherwise the feature must not exist as we do not load
         cols, fun, dt, iterlevel = single_column_features[feature]
         # so that we do not attempt to preprocess the labels which we do not have in the test set
-        if any([is_label(col) for col in cols]) and not train_set_mode:
-            continue
+        # and also catalogue everything in manifest properly
+        if any_labels(feature, cols):
+            if train_set_mode:
+                manifest['available_columns']['targets'].append(feature)
+            else:
+                print("WARNING: a label based feature specified in the preprocessing for a test set, ignoring it.\n")
+                continue
+        else:
+            manifest['available_columns']['features'].append(feature)
 
         # apply to the corresponding iterlevel
         if iterlevel == 1:
@@ -109,7 +119,6 @@ def preprocess(
                        left_index=True,
                        right_index=True)
 
-        manifest['available_features'].append(feature)
 
     #factorize features with small cardinality
     # Path(new_features_dir).mkdir(exist_ok=True, parents=True)

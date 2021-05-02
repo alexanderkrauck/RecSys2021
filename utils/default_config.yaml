@@ -28,7 +28,7 @@ compute:
   # I recommend at least 2GB per thread for reliable operation.
   n_workers: 2
   n_threads_per_worker: 2
-  mem_lim: "4GB"
+  mem_lim: "6GB"
 
 features:
   # basic features from the list to compute (computed in this order)

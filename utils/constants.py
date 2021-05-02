@@ -29,6 +29,8 @@ all_labels = ["reply",
               "retweet_comment",
               "like"]
 
+target_track = set(all_labels)
+
 dtypes_of_features = {
     "bert_base_multilingual_cased_tokens": str,
     "hashtags": str,
@@ -57,8 +59,38 @@ dtypes_of_features = {
 }
 
 
-def is_label(col_name: str) -> bool:
-    return col_name in all_labels
+def __add_feature_to_label_registry(feature_name: str):
+    global target_track
+    target_track.add(feature_name)
+
+
+def any_labels(feature_name: str, cols: Tuple[str, List]) -> bool:
+    '''
+
+    Parameters
+    ----------
+    feature_name
+        the name of the new feature
+    cols
+        the columns it depends on (or one column)
+    Returns
+    -------
+        true if the feature is target derived
+    '''
+    if type(cols) is str:
+        if cols in target_track:
+            __add_feature_to_label_registry(feature_name)
+            return True
+        else:
+            return False
+    elif type(cols) is list:
+        if any([col in target_track for col in cols]):
+            __add_feature_to_label_registry(feature_name)
+            return True
+        else:
+            return False
+    else:
+        raise ValueError("Argument for any_labels should be either string or a list.")
 
 
 __type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}

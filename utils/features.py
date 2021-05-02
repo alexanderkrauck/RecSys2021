@@ -14,6 +14,8 @@ single_column_features = {
     # TODO: apply log to numerical values (or not?)
     # name of the feature : ([required columns], function, output type,
     #   apply level (1: series lambda/apply, 2: df row lambda, 3: df map_partitions))
+    # also highly recommended to specify at least one of the features from all_labels in the requirements even if not
+    #   needed for computation for all target derived features.
     "bert_token_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: len(bertenc.split('\t')), np.uint32, 1),
     "has_reply": ('reply', lambda v: v > 0., bool, 3),
     "has_retweet": ('retweet', lambda v: v > 0., bool, 3),

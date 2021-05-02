@@ -124,7 +124,7 @@ def readable_time_now() -> str:
     -------
         current time in a readable format
     '''
-    return datetime.now().strftime('%m_%d_%H_%M')
+    return datetime.now().strftime('__%m_%d_%H_%M')
 
 
 def shelf_directory(dir_path: Union[os.PathLike, str]) -> str:
@@ -141,6 +141,8 @@ def shelf_directory(dir_path: Union[os.PathLike, str]) -> str:
     if os.path.exists(dir_path) and os.path.isdir(dir_path):
         new_path = str(dir_path)+readable_time_now()
         os.rename(dir_path, new_path)
+    else:
+        new_path = None
     os.mkdir(dir_path)
 
     return new_path
