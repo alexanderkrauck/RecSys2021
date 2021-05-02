@@ -1,0 +1,45 @@
+TE_stats:
+  TE_language_has_like: TE_language_has_like
+  TE_language_has_reply: TE_language_has_reply
+  TE_language_has_retweet: TE_language_has_retweet
+  TE_language_has_retweet_comment: TE_language_has_retweet_comment
+  TE_type_has_like: TE_type_has_like
+  TE_type_has_reply: TE_type_has_reply
+  TE_type_has_retweet: TE_type_has_retweet
+  TE_type_has_retweet_comment: TE_type_has_retweet_comment
+available_columns:
+  features:
+  - bert_base_multilingual_cased_tokens
+  - hashtags
+  - tweet_id
+  - medias
+  - links
+  - domains
+  - type
+  - language
+  - timestamp
+  - a_user_id
+  - a_follower_count
+  - a_following_count
+  - a_is_verified
+  - a_account_creation
+  - b_user_id
+  - b_follower_count
+  - b_following_count
+  - b_is_verified
+  - b_account_creation
+  - a_follows_b
+  - bert_token_len
+  - n_photos
+  - n_videos
+  - n_gifs
+  targets:
+  - reply
+  - retweet
+  - retweet_comment
+  - like
+  - has_reply
+  - has_retweet
+  - has_retweet_comment
+  - has_like
+  - reply_age
