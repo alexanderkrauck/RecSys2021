@@ -168,7 +168,7 @@ def preprocess(
 
     # save the manifest if in train mode
     if train_set_mode:
-        dump_manifest(mop_config["manifesto"], manifest)
+        dump_manifest(os.path.join(comp_dir, mop_config["manifesto"]), manifest)
 
     if verbosity >= 1:
         print("Feature generation ready, manifest dumped, associated delayed objects: {}\n\n{}.".format(ddf, delayed_dump))
