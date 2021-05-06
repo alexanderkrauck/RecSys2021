@@ -2,6 +2,12 @@ import numpy as np
 import os
 from collections import Counter
 from typing import Tuple, List, Dict
+import pandas as pd
+
+
+COMP_DIR = os.getcwd()
+ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+FILE_DIR = os.path.realpath(__file__)
 
 all_features = ["bert_base_multilingual_cased_tokens",
                 "hashtags",
@@ -97,6 +103,8 @@ __type_mapping = {"Retweet": 0, "Quote":1, "Reply":2, "TopLevel":3}
 
 __media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
 
+__language_mapping = pd.read_csv(os.path.join(ROOT_DIR,"language_mappings.csv"), index_col="language_id")["encode"].to_dict()
+
 converters_for_the_original_dataset = {
     #"tweet_id": lambda tid: int(tid[0:8], 16), # take only the last 8 digits, overlap is still pretty unlikely, backwards unhashing is easy
     # TODO: do we really want this, though ?
@@ -104,6 +112,3 @@ converters_for_the_original_dataset = {
 
 all_columns = all_features + all_labels
 
-COMP_DIR = os.getcwd()
-ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
-FILE_DIR = os.path.realpath(__file__)

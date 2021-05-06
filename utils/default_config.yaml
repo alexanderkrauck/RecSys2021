@@ -2,6 +2,7 @@ verbose: 1
 mop:
   # set to false when preprocessing the test set, then the manifest and other stuff is used differently
   train_set: true
+  has_labels: true
   # if true the features will not be recomputed from scratch
   additive_preprocessing: false
   preprocessing_manifest: "./prepro_manifest.yaml"
@@ -12,7 +13,7 @@ mop:
   # directories for the corresponding states of the original data
   preprocessed_dir: "preprocessed"
   compressed_dir: "compressed_data"
-  uncompressed_dir: "uncompressed_data"
+  uncompressed_dir: "test"
   # either 'comp', 'uncomp' or 'parquet', if parquet is used, stuff's gonna get appended to whatever is already there
   load_from: "parquet"
   manifesto: "generated_manifest.yaml"
@@ -28,7 +29,7 @@ compute:
   # I recommend at least 2GB per thread for reliable operation.
   n_workers: 2
   n_threads_per_worker: 2
-  mem_lim: "6GB"
+  mem_lim: "4GB"
 
 features:
   # basic features from the list to compute (computed in this order)
@@ -41,22 +42,55 @@ features:
     - "n_photos"
     - "n_videos"
     - "n_gifs"
-    - "reply_age"
+    - "type_encoding"
+    - "language_encoding"
+    - "a_followers"
+    - "a_following"
+    - "b_followers"
+    - "b_following"
+    - "day_of_week"
+    - "hour_of_day"
+    - "b_creation_delta"
+    - "a_creation_delta"
+    - "tweet_hash"
+    - "b_hash"
+    - "a_hash"
+  keep_features:
+    - "b_is_verified"
+    - "a_is_verified"
+    - "a_follows_b"
+    - "b_user_id"
+    - "tweet_id" #keep tweet id and b_user_id so we have an unique identifier
+
 
   # target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
   TE_smoothing_factor: 20
   TE_features:
-    language:
+    language_encoding:
       - "has_reply"
       - "has_like"
       - "has_retweet_comment"
       - "has_retweet"
-    type:
+    type_encoding:
       - "has_reply"
       - "has_like"
       - "has_retweet_comment"
       - "has_retweet"
-
+    tweet_hash:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+    b_hash:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+    a_hash:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
   # categorical columns to compute the marginal probabilities for
   marginal_prob_columns:
     dump_to: "naive_features.csv"

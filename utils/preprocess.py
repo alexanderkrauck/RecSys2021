@@ -44,9 +44,9 @@ def preprocess(
     '''
 
     # split the config file
-    mop_config = load_mop_config(config)  # mode of preprocessing part
-    compute_config = load_compute_config(config)   # all to do with computation
-    feature_config = load_feature_config(config)     # all to do with specifications of the features that we need
+    mop_config = load_mop_config(cfg = config)  # mode of preprocessing part
+    compute_config = load_compute_config(cfg = config)   # all to do with computation
+    feature_config = load_feature_config(cfg = config)     # all to do with specifications of the features that we need
 
     #Load default config if not specified and extract required parameters
     verbosity = mop_config['verbose']
@@ -120,25 +120,6 @@ def preprocess(
                        right_index=True)
 
 
-    #factorize features with small cardinality
-    # Path(new_features_dir).mkdir(exist_ok=True, parents=True)
-    # with get_dask_compute_environment(config) as client:
-    #     for col in config["low_cardinality_rehash_features"]:
-    #         tmp_col = f'{col}_encode'
-    #         fut_tmp = ddf[col].unique()
-    #         fut_tmp = client.persist(fut_tmp)
-    #         if verbosity > 0:
-    #             progress(fut_tmp)
-    #         tmp = fut_tmp.compute()
-    #         tmp = tmp.to_frame().reset_index()
-    #         tmp.columns = [i if i!="index" else tmp_col for i in tmp.columns]
-    #         ddf = ddf.merge(tmp, on=col, how='left')
-    #         ddf[tmp_col] = ddf[tmp_col].astype('uint8')
-    #         mapping_output = join(new_features_dir, f"{col}_mapping.csv")
-    #         if verbosity >= 1: print(f"Outputing mapping for {col} to {mapping_output}")
-    #         tmp[[tmp_col, col]].to_csv(mapping_output)
-
-
     # then add the TEs as per configuration
     for te_feature, te_targets in feature_config['TE_features'].items():
         for te_target in te_targets:
@@ -161,7 +142,7 @@ def preprocess(
                 ddf, cnm = TE_dataframe_dask(ddf, te_feature, te_target, counts_and_means=cnm)
                 # already joins in the function
 
-    new_feature_columns = [col for col in ddf.columns if col not in original_cols]
+    new_feature_columns = [col for col in ddf.columns if col not in original_cols or col in feature_config['basic_features'] or col in feature_config['keep_features']]
     if verbosity >= 1:
         print("The following preprocessed columns can be dumped: ", new_feature_columns)
     delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False)

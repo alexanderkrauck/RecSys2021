@@ -108,8 +108,8 @@ def get_dask_compute_environment(comp_config: dict = None) -> Client:
 
 
 def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
-    mop_config = load_mop_config(config)
-    compute_config = load_compute_config(config)
+    mop_config = load_mop_config(cfg = config)
+    compute_config = load_compute_config(cfg = config)
 
     # Load default config if not specified and extract required parameters
     verbosity = mop_config['verbose']
@@ -117,6 +117,7 @@ def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
     # unpack some of the config variables
     train_set_mode = mop_config['train_set']
     data_source = mop_config['load_from']
+    has_labels = mop_config['has_labels']
 
     # Set default directories if not specified (based on root dir)
     compressed_dir = os.path.join(comp_dir, mop_config['compressed_dir'])
@@ -134,18 +135,18 @@ def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
     if verbosity >= 2:
         print(unpacked_files)
 
-    if train_set_mode:
+    if has_labels:
         ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_columns,
                           blocksize=compute_config['chunksize'],
                           dtype={k: v for k, v in dtypes_of_features.items() if k in all_features},
                           converters=converters_for_the_original_dataset
-                          )  # TODO: add dtypes from above and converters
+                          )
     else:
-        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_features,
+        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=features,
                           blocksize=compute_config['chunksize'],
                           dtype={k: v for k, v in dtypes_of_features.items() if k in all_features},
                           converters=converters_for_the_original_dataset
-                          )  # TODO: add dtypes from above and converters
+                          )
 
     # Add unique id for indexing
     ddf["idx"] = 1
