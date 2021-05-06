@@ -134,6 +134,15 @@ compressed_data/
 selected_data/
 reduced_1_data/
 reduced_2_data/
+preprocessed_validation_files/
+preprocessed_validation_features/
+preprocessed_training_files/
+preprocessed_training_features/
+feature_stats_training/
+feature_stats/
+prprocessed_features/
+training_files/
+validation_files/
 
 #dask
 dask-worker-space
@@ -147,3 +156,4 @@ training_urls.txt
 #other
 language_priors_reply.csv
 test/
+generated_manifest.yaml
