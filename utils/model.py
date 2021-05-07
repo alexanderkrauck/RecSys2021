@@ -13,6 +13,9 @@ from os.path import join
 from pathlib import Path
 import torch
 from torch import nn
+import xgboost as xgb
+import pandas as pd
+import numpy as np
 
 #Convention Imports
 from abc import ABC, abstractmethod
@@ -21,12 +24,12 @@ from typing import Union, List, Tuple, Callable, Dict, Iterable
 class RecSys2021BaseModel(ABC):
     """Base class to inherit from for the Recsys2021 challenge"""
 
-    def evaluate_test_set(self, testLoader: torch.utils.data.DataLoader, output_file: str = "output.csv"):
+    def evaluate_test_set(self, testLoader: Iterable, output_file: str = "output.csv"):
         """Evaluates the test data inside the testLoader and otputs it appropriatly
 
         Parameters
         ----------
-        testLoader: torch.utils.data.DataLoader
+        testLoader: Iterable
             The dataloader for the test data. The dataloader is expected to always give the tweet_ids and 
             user_ids (engaging user id = user b) with the batch.
         output_file: str
@@ -35,8 +38,8 @@ class RecSys2021BaseModel(ABC):
         """
 
 
-        with open(output_file, 'w') as output:
-            for tweet_ids, user_ids, batch in testLoader:
+        with open(output_file, 'a') as output:
+            for (tweet_ids, user_ids), batch in testLoader:
                 reply_preds, retweet_preds, retweet_comment_preds, like_preds = self.infer(batch)
 
                 for tweet_id, user_id, reply_pred, retweet_pred, retweet_comment_pred, like_pred in \
@@ -97,7 +100,65 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
         raise NotImplementedError("Implement this!")
 
 
+class RecSysXGB1(RecSys2021BaseModel):
 
+    def __init__(self, model_dir: str = None):
+        self.clfs_ = {}
+        self.targets__ = ['has_reply', 'has_retweet', 'has_retweet_comment', 'has_like']
+
+
+        if model_dir is not None:
+            for filename in os.listdir(model_dir):
+                booster = xgb.Booster()
+                booster.load_model(join(model_dir,filename))
+                self.clfs_[filename] = booster
+
+                
+
+    def train_in_memory(self,
+            train_set: pd.DataFrame,
+            feature_columns: List,
+            xgb_parameters: dict,
+            save_dir: str = None
+        ):
+        """Train in-memory with a pandas train set. 
+        
+        The train_set is expected to have 4 target columns with names ['has_reply', 'has_retweet', 'has_retweet_comment', 'has_like']
+
+        Parameters
+        ----------
+        train_set: pd.DataFrame
+            Pandas dataframe with features and targets.
+        feature_columns: List
+            List of column names of the train_set that should be used as training features (X) for the models
+        xgb_parameters: dict
+            The configuration for the XGB model as specified in https://xgboost.readthedocs.io/en/latest/parameter.html
+        save_dir: str
+            The directory where models will be stored if given
+        """
+        
+        
+        for target in self.targets__:
+            dtrain = xgb.DMatrix(train_set[feature_columns], label=train_set[target])
+            clf = xgb.train(xgb_parameters, dtrain, 10)
+
+            self.clfs_[target] = clf
+            if save_dir is not None:
+                Path(save_dir).mkdir(parents=True, exist_ok=True)
+                clf.save_model(join(save_dir, target))
+        
+            
+    def infer(self, x, feature_columns = None):
+        if feature_columns is not None:
+            x = x[feature_columns]
+
+        x = xgb.DMatrix(x)
+
+        results = []
+        for key in self.targets__:
+            results.append(self.clfs_[key].predict(x))
+        
+        return tuple(results)
 
 
 

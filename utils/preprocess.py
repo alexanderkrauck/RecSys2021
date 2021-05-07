@@ -71,7 +71,7 @@ def preprocess(
     ensure_dir_exists(stat_dir)
 
     # default parameters work just fine
-    ddf = load_all_preprocessed_data(comp_dir=comp_dir,
+    ddf = load_all_preprocessed_data(working_dir=comp_dir,
                                      new_features=mop_config['additive_preprocessing'],
                                      old_features=True,
                                      mop_config=mop_config)

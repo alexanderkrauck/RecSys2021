@@ -13,7 +13,7 @@ from datetime import datetime
 tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
 
 def save_log(item):
-    return np.log(item + 1)
+    return np.log(abs(item) + 1)
 
 single_column_features = {
     # TODO: apply log to numerical values (or not?)

@@ -36,7 +36,7 @@ def conditional_probabilities_as_per_config(df: dd.DataFrame,
 
 
 def load_all_preprocessed_data(
-        comp_dir: str = COMP_DIR,
+        working_dir: str = COMP_DIR,
         new_features: bool = False,
         old_features: bool = True,
         mop_config: Dict = None
@@ -59,8 +59,8 @@ def load_all_preprocessed_data(
     if not mop_config:
         mop_config = load_mop_config()
 
-    prepro_dir = os.path.join(comp_dir, mop_config['preprocessed_dir'])
-    new_features_dir = os.path.join(comp_dir, mop_config['feature_dir'])
+    prepro_dir = os.path.join(working_dir, mop_config['preprocessed_dir'])
+    new_features_dir = os.path.join(working_dir, mop_config['feature_dir'])
 
     if new_features and old_features:
         original_df = dd.read_parquet(prepro_dir, index="idx")
@@ -153,10 +153,11 @@ def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
     ddf["idx"] = ddf["idx"].cumsum()
 
     # deal with the NAs in the source data
-    ddf['reply'] = ddf['reply'].fillna(0).astype(np.uint32)
-    ddf['retweet'] = ddf['retweet'].fillna(0).astype(np.uint32)
-    ddf['retweet_comment'] = ddf['retweet_comment'].fillna(0).astype(np.uint32)
-    ddf['like'] = ddf['like'].fillna(0).astype(np.uint32)
+    if has_labels:
+        ddf['reply'] = ddf['reply'].fillna(0).astype(np.uint32)
+        ddf['retweet'] = ddf['retweet'].fillna(0).astype(np.uint32)
+        ddf['retweet_comment'] = ddf['retweet_comment'].fillna(0).astype(np.uint32)
+        ddf['like'] = ddf['like'].fillna(0).astype(np.uint32)
 
     if verbosity > 0: print("Outputting preprocessed files")
     with get_dask_compute_environment(compute_config) as client:

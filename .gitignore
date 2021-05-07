@@ -157,3 +157,5 @@ training_urls.txt
 language_priors_reply.csv
 test/
 generated_manifest.yaml
+xgb_models_01/
+simple_pandas_run/
