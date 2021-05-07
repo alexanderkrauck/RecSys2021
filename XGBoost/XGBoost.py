@@ -11,22 +11,23 @@ class XGBoost():
         self.parameters = conf
         self.model = None
 
-    def fit(self,X,y,model_in,models_dir,i):
-        """Fuction which takes a df or ddf uses fit saves model.
+    def fit(self,X,y,model_in,models_dir,i,client):
+        """Function which takes a df or ddf uses fit saves model.
         :parameter X nd array of features
         :parameter y 1d array of labels
         :parameter model_in Path to input model, needed for test, eval, dump tasks.
         If it is specified in training, XGBoost will continue training from the input model.
         :parameter models_dir:str, path to directory with saved models
-        :parameter i round of fitting"""
-        dmatrix = xgb.DMatrix(X, label=y)
-        self.model = xgb.train(self.parameters,dmatrix,xgb_model=model_in,feval=self.rce)
+        :parameter i round of fitting
+        :parameter client is a dask client"""
+        dmatrix = xgb.dask.DMatrix(client,X, label=y)
+        self.model = xgb.dask.train(client,self.parameters,dmatrix,xgb_model=model_in,feval=self.rce)
         self.model.save_model(path.abspath(path.join(models_dir,f'/model_{i}.model')))
         return path.abspath(path.join(path.dirname(model_in),f'/model_{i}.model'))
 
-    def predict(self,X,y):
-        dmatrix = xgb.DMatrix(X, label=y)
-        pred =self.model.predict(dmatrix)
+    def predict(self,X,y,client):
+        dmatrix = xgb.dask.DMatrix(client, X)#label=y ???
+        pred = xgb.dask.predict(client,self.model,dmatrix)
         return pred
 
     def rce(self,pred: np.ndarray, dtrain: xgb.DMatrix):
