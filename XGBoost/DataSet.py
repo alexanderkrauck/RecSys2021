@@ -10,7 +10,8 @@ class XGSet(Dataset):
         """Initialise ddf and features vs label column
         :parameter ddf DaskDataframe
         :parameter features list of strings, names of feat columns
-        :parameter clazz: str name of target column"""
+        :parameter clazz: str name of target column
+        """
         self.ddf = ddf
         self.features = features
         self.clazz = clazz
