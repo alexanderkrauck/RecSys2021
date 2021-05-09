@@ -6,15 +6,16 @@ from .constants import __media_type_mapping, __type_mapping, __language_mapping
 import dask.dataframe as dd
 from typing import List
 
-from transformers import BertTokenizer
+#from transformers import BertTokenizer
 
 from datetime import datetime
 
-tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
+#tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
 
 def save_log(item):
     return np.log(abs(item) + 1)
 
+div = 2**32
 single_column_features = {
     # TODO: apply log to numerical values (or not?)
     # name of the feature : ([required columns], function, output type,
@@ -44,9 +45,9 @@ single_column_features = {
     "hour_of_day":('timestamp', lambda x: datetime.fromtimestamp(x).hour, np.uint8, 1),
     "b_creation_delta": (['timestamp', 'b_account_creation'], lambda x: save_log(x["timestamp"] - x["b_account_creation"]), np.float32, 3),
     "a_creation_delta": (['timestamp', 'a_account_creation'], lambda x: save_log(x["timestamp"] - x["a_account_creation"]), np.float32, 3),
-    "tweet_hash": ("tweet_id", lambda x: abs(hash(x)) , np.uint32, 1),
-    "b_hash": ("b_user_id", lambda x: abs(hash(x)) , np.uint32, 1),
-    "a_hash": ("a_user_id", lambda x: abs(hash(x)) , np.uint32, 1)
+    "tweet_hash": ("tweet_id", lambda x: int(x, 16)%div , np.uint32, 1),#this introduces a slight error but should be fine with the big picture...
+    "b_hash": ("b_user_id", lambda x: int(x, 16)%div , np.uint32, 1),
+    "a_hash": ("a_user_id", lambda x: int(x, 16)%div , np.uint32, 1)
 }
 
 
@@ -62,13 +63,14 @@ def TE_dataframe_dask(df: dd.DataFrame,
                       counts_and_means: dd.DataFrame = None) -> Tuple[dd.DataFrame]:
     if counts_and_means is None:
         counts_and_means = df[[target_name, feature_name]].groupby(feature_name)[target_name].agg(['count', 'mean'])
-        counts_and_means["total_mean"] = df[target_name].mean()  # redundant but necessary
+        counts_and_means["total_mean"] = df[target_name].mean() # redundant but necessary
     TE_map = counts_and_means.apply(lambda cm: (cm["count"]*cm["mean"]+w_smoothing*cm["total_mean"])/(cm["count"]+w_smoothing),
                                     axis=1,
                                     meta=(TE_get_name(feature_name, target_name), dt)
                                     )
     # the only way to vectorize this, joining on non-index - must be somewhat costly
     df = df.join(TE_map, on=feature_name, how='left')
+    df = df.fillna(-1)#for test set...
 
     return df, counts_and_means    # all lazy all dask, should be fine, evaluated in the end when all the things are merged
 
