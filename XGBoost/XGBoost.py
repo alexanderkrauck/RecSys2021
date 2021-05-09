@@ -20,14 +20,16 @@ class XGBoost():
         :parameter models_dir:str, path to directory with saved models
         :parameter i round of fitting
         :parameter client is a dask client"""
-        dmatrix = xgb.dask.DMatrix(client,X, label=y)
-        self.model = xgb.dask.train(client,self.parameters,dmatrix,xgb_model=model_in,feval=self.rce)
-        self.model.save_model(path.abspath(path.join(models_dir,f'/model_{i}.model')))
-        return path.abspath(path.join(path.dirname(model_in),f'/model_{i}.model'))
+        dmatrix = xgb.dask.DaskDMatrix(client,X,y)
+        self.model = xgb.dask.train(client,self.parameters,dmatrix,xgb_model=model_in,feval=self.rce)['booster']
+        self.model.save_model(path.abspath((path.join(models_dir,f'model_{i}.model'))))
+        return path.abspath((path.join(models_dir,f'model_{i}.model')))
 
-    def predict(self,X,y,client):
-        dmatrix = xgb.dask.DMatrix(client, X)#label=y ???
-        pred = xgb.dask.predict(client,self.model,dmatrix)
+    def predict(self,X,y,client,model):
+        dmatrix = xgb.dask.DaskDMatrix(client, X)#label=y ???
+        booster = xgb.Booster()
+        booster.load_model(model)
+        pred = xgb.dask.predict(client,booster,dmatrix)
         return pred
 
     def rce(self,pred: np.ndarray, dtrain: xgb.DMatrix):
@@ -54,6 +56,9 @@ class XGBoost():
 
     def evaluate(self, pred, true):
         """Function is used outside of xgboost.train for evaluation on validation and test set."""
-        ap = average_precision_score(pred, true)
+        pred = pred.compute()
+        true = true.compute()
+        ap = average_precision_score(true, pred)
         rce = self.compute_rce(pred,true)
+        del pred, true
         return ap, rce

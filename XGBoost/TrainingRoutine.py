@@ -1,12 +1,14 @@
 import os
 import numpy as np
-from DataSet import XGSet
-from XGBoost import XGBoost
+from .DataSet import XGSet
+from .XGBoost import XGBoost
 from dask import dataframe as dd
+import dask.distributed
+import dask
 import yaml
-from ..utils.compute_and_front import  load_all_preprocessed_data
+from utils.compute_and_front import  load_all_preprocessed_data
 
-def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='default',printout=1e3):
+def training(data_dir:str, yml:str, conf:dict, how_batch:str, nw=4, specify_batching='default',printout=1e3):
     """
     :parameter data_dir string path to directory with data
     :parameter out_dir string path to directory to save models
@@ -18,6 +20,7 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
     :parameter printout: int
     :parameter conf dictionary of model parameters
     :parameter nw number of workers for dask
+    :parameter yaml string path to yaml file
     specifies how often validation is computed, and results are printed out
     default value is 1e3
     """
@@ -25,13 +28,18 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
     #load data to dask, receive a ddf object
     cluster = dask.distributed.LocalCluster(n_workers=nw, threads_per_worker=1)
     client = dask.distributed.Client(cluster)
+
     ddf = load_all_preprocessed_data(os.path.abspath(data_dir),True,True)#forlder with preprocessed df
-    col_groups = yaml.load(os.path.abspath("../generated_manifest.yaml"), Loader=yaml.FullLoader)['available_columns']
+    with open(yml) as yf:
+        col_groups = yaml.load(yf,Loader=yaml.CLoader)['available_columns']
+
     features = col_groups['features']
-    classes = col_groups['has_reply','has_retweet','has_retweet_comment','has_like']
+    classes = ['has_reply','has_retweet','has_retweet_comment','has_like']
 
     #for every class train own model
     for clazz in classes:
+        name = f" Predicting class  {clazz} "
+        print(f"{'~' * 10}{name}{'~' * (100-len(name)+8)}")
         #form splitted dataset indicies
         dataset = XGSet(ddf,features,clazz)
         size = dataset.__len__()
@@ -49,7 +57,8 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
             n_updates = 1
 
         model = XGBoost(conf=conf)
-        models_dir = os.path.abspath(f"./models_{clazz}")
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        models_dir = os.path.join(current_dir,"XGB_models",clazz)
         model_in = None
         try:
             os.mkdir(models_dir)
@@ -67,7 +76,7 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
             #optimised that we train XGboost by giving it data partially, but sequentially
             while stop<=int(train_ids[1]/n_updates)*update:
                 X, y = dataset.form_subset((start,stop))
-                model_in = model.fit(X,y,model_in,models_dir,update,client)#unique model is save every updatee
+                model_in = model.fit(X,y,model_in,models_dir,update,client)#unique model is save every update
                 start = stop
                 stop+=int(train_ids[1]/(n_updates*n_batches))
 
@@ -76,11 +85,11 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
                 # validate model
                 #validation set is huge, validate it even more partially and parallelised,
                 X_val, y_val = dataset.form_subset(valid_ids)
-                val_pred = model.predict(X_val,y_val,client)
+                val_pred = model.predict(X_val,y_val,client,model_in).astype(np.int64)
                 val_ap, val_rce = model.evaluate(val_pred,y_val)
 
                 #last part of training subset is efficiently small to fit evaluation
-                trn_pred = model.predict(X, y, client)
+                trn_pred = model.predict(X, y, client,model_in).astype(np.int64)
                 trn_ap, trn_rce = model.evaluate(trn_pred,y)
 
                 del X_val, y_val #validation set of 2billion items is huge itself, define it only when validate, and then delete
@@ -96,16 +105,11 @@ def training(data_dir:str, conf:dict, how_batch:str, nw=4, specify_batching='def
         #test model
         X_val, y_val = dataset.form_subset(valid_ids)
         X_test, y_test = dataset.form_subset(test_ids)
-        val_pred = model.predict(X_val, y_val, client)
+        val_pred = model.predict(X_val, y_val, client,model_in).astype(np.int64)
         val_ap, val_rce = model.evaluate(val_pred, y_val)
-        test_pred = model.predict(X_test, y_test, client)
+        test_pred = model.predict(X_test, y_test, client,model_in).astype(np.int64)
         test_ap, test_rce = model.evaluate(test_pred, y_test)
         del X_val,X_test,y_test,y_val
-        print(f"{'='*10} Final result {'='*100}")
+        print(f"{'='*10} Final result {'='*96}")
         print(f"RCE:\n Validation {val_rce}\n Test       {test_rce}")
         print(f"\nAverage Precision: \n Validation {val_ap}\n Test       {test_ap}")
-
-#============================================================================================
-#function call
-#============================================================================================
-training(data_dir=None, conf=None, how_batch='set_updates',nw=4,specify_batching=(6,2),printout=2)
