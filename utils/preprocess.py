@@ -54,6 +54,8 @@ def preprocess(
     # unpack some of the config variables
     train_set_mode = mop_config['train_set']
     data_source = mop_config['load_from']
+    has_labels = mop_config['has_labels']
+
 
     #Set default directories if not specified (based on root dir)
     new_features_dir = join(comp_dir, mop_config['feature_dir'])
@@ -94,7 +96,7 @@ def preprocess(
         # so that we do not attempt to preprocess the labels which we do not have in the test set
         # and also catalogue everything in manifest properly
         if any_labels(feature, cols):
-            if train_set_mode:
+            if has_labels:
                 manifest['available_columns']['targets'].append(feature)
             else:
                 print("WARNING: a label based feature specified in the preprocessing for a test set, ignoring it.\n")
