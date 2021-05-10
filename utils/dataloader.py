@@ -17,7 +17,18 @@ class RecSys2021PandasDataLoader():
     """
 
     def __init__(self, data: pd.DataFrame, feature_columns: List = None, mode: str = "test"):
-        
+        """
+
+        Parameters
+        ----------
+        data: pd.DataFrame
+            The data which contains the given feature columns and if mode="validation" then also the 4 target columns has_reply, has_retweet, has_retweet_comment, has_like
+        feature_columns: List
+            A list of the feature column names
+        mode: str
+            The mode of the DataLoader. Currently supports "test" or "validation". These modes are conform with the "utils.model.RecSys2021BaseModel" class methods.
+        """
+
         self.feature_columns = feature_columns
         self.data = data
         self.mode = mode

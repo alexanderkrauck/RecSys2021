@@ -49,8 +49,21 @@ class RecSys2021BaseModel(ABC):
 
                     output.write(f'{tweet_id},{user_id},{reply_pred},{retweet_pred},{retweet_comment_pred},{like_pred}\n')
         
+    #TODO: ADD "fair" evaluation with quantiles.
     def evaluate_validation_set(self, validationLoader: Iterable):
+        """Calculates the official RecSys metrics for a dataset
+
+        Parameters
+        ----------
+        validationLoader: Iterable
+            The dataloader for the validation data. The dataloader is expected to always return a tuple of the batch,
+            plus the labels of the batch in the order: batch, (reply_target, retweet_target, retweet_comment_target, like_target)
         
+        Returns
+        ----------
+        Average Precision Score and RCE Score of each target in the same order as the input targets.
+        I.e. (reply_avg_prec, retweet_avg_prec, retweet_comment_avg_prec, like_avg_prec), (reply_rce, retweet_rce, retweet_comment_rce, like_rce)
+        """
         reply_preds = []
         retweet_preds = []
         retweet_comment_preds = []
