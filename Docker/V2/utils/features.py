@@ -45,9 +45,9 @@ single_column_features = {
     "hour_of_day":('timestamp', lambda x: datetime.fromtimestamp(x).hour, np.uint8, 1),
     "b_creation_delta": (['timestamp', 'b_account_creation'], lambda x: save_log(x["timestamp"] - x["b_account_creation"]), np.float32, 3),
     "a_creation_delta": (['timestamp', 'a_account_creation'], lambda x: save_log(x["timestamp"] - x["a_account_creation"]), np.float32, 3),
-    "tweet_hash": ("tweet_id", lambda x: int(x, 16)%div , np.uint32, 1),#this introduces a slight error but should be fine with the big picture...
-    "b_hash": ("b_user_id", lambda x: int(x, 16)%div , np.uint32, 1),
-    "a_hash": ("a_user_id", lambda x: int(x, 16)%div , np.uint32, 1)
+    "tweet_hash": ("tweet_id", lambda x: int(x, 16) % div, np.uint32, 1),#this introduces a slight error but should be fine with the big picture...
+    "b_hash": ("b_user_id", lambda x: int(x, 16) % div, np.uint32, 1),
+    "a_hash": ("a_user_id", lambda x: int(x, 16) % div, np.uint32, 1)
 }
 
 

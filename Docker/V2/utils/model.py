@@ -16,6 +16,8 @@ from torch import nn
 import xgboost as xgb
 import pandas as pd
 import numpy as np
+from sklearn.metrics import average_precision_score, log_loss
+
 
 #Convention Imports
 from abc import ABC, abstractmethod
@@ -47,7 +49,60 @@ class RecSys2021BaseModel(ABC):
 
                     output.write(f'{tweet_id},{user_id},{reply_pred},{retweet_pred},{retweet_comment_pred},{like_pred}\n')
         
-    
+    #TODO: ADD "fair" evaluation with quantiles.
+    def evaluate_validation_set(self, validationLoader: Iterable):
+        """Calculates the official RecSys metrics for a dataset
+
+        Parameters
+        ----------
+        validationLoader: Iterable
+            The dataloader for the validation data. The dataloader is expected to always return a tuple of the batch,
+            plus the labels of the batch in the order: batch, (reply_target, retweet_target, retweet_comment_target, like_target)
+        
+        Returns
+        ----------
+        Average Precision Score and RCE Score of each target in the same order as the input targets.
+        I.e. (reply_avg_prec, retweet_avg_prec, retweet_comment_avg_prec, like_avg_prec), (reply_rce, retweet_rce, retweet_comment_rce, like_rce)
+        """
+        reply_preds = []
+        retweet_preds = []
+        retweet_comment_preds = []
+        like_preds = []
+
+        reply_targets = []
+        retweet_targets = []
+        retweet_comment_targets = []
+        like_targets = []
+        
+        for batch, (reply_target, retweet_target, retweet_comment_target, like_target) in validationLoader:
+            reply_targets.extend(reply_target)
+            retweet_targets.extend(retweet_target)
+            retweet_comment_targets.extend(retweet_comment_target)
+            like_targets.extend(like_target)
+
+            reply_pred, retweet_pred, retweet_comment_pred, like_pred = self.infer(batch)
+            reply_preds.extend(reply_pred)
+            retweet_preds.extend(retweet_pred)
+            retweet_comment_preds.extend(retweet_comment_pred)
+            like_preds.extend(like_pred)
+        
+        reply_rce = compute_rce(reply_preds, reply_targets)
+        retweet_rce = compute_rce(retweet_preds, retweet_targets)
+        retweet_comment_rce = compute_rce(retweet_comment_preds, retweet_comment_targets)
+        like_rce = compute_rce(like_preds, like_targets)
+
+        reply_avg_prec = average_precision_score(reply_targets, reply_preds)
+        retweet_avg_prec = average_precision_score(retweet_targets, retweet_preds)
+        retweet_comment_avg_prec = average_precision_score(retweet_comment_targets, retweet_comment_preds)
+        like_avg_prec = average_precision_score(like_targets, like_preds)
+
+        return (reply_avg_prec, retweet_avg_prec, retweet_comment_avg_prec, like_avg_prec), (reply_rce, retweet_rce, retweet_comment_rce, like_rce)
+
+
+
+
+        
+
     @abstractmethod
     def infer(self, x: Union[List, torch.Tensor, Tuple, Dict]) -> Tuple[Iterable, Iterable, Iterable, Iterable]:
         """In the infer call the model should process 1 batch
@@ -164,7 +219,6 @@ class RecSysXGB1(RecSys2021BaseModel):
 
 
 """Functions copied from https://recsys-twitter.com/code/snippets"""
-from sklearn.metrics import average_precision_score, log_loss
 def calculate_ctr(gt):
   positive = len([x for x in gt if x == 1])
   ctr = positive/float(len(gt))

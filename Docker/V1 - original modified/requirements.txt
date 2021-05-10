@@ -1,0 +1,8 @@
+scikit-learn
+scipy
+pandas
+numpy
+torch==1.7.1+cpu
+xgboost
+fastparquet
+pyarrow
