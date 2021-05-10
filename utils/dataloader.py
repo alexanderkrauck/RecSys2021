@@ -16,9 +16,11 @@ class RecSys2021PandasDataLoader():
     Currently only supports single batch loading
     """
 
-    def __init__(self, data: pd.DataFrame, feature_columns: List = None):
+    def __init__(self, data: pd.DataFrame, feature_columns: List = None, mode: str = "test"):
+        
         self.feature_columns = feature_columns
         self.data = data
+        self.mode = mode
 
     def __iter__(self):
         self.ret = True
@@ -27,6 +29,9 @@ class RecSys2021PandasDataLoader():
     def __next__(self):
         if self.ret:
             self.ret = False
-            return (self.data["tweet_id"], self.data["b_user_id"]), self.data[self.feature_columns]
+            if self.mode == "test":
+                return (self.data["tweet_id"], self.data["b_user_id"]), self.data[self.feature_columns]
+            if self.mode == "validation":
+                return self.data[self.feature_columns], (list(self.data["has_reply"]), list(self.data["has_retweet"]), list(self.data["has_retweet_comment"]), list(self.data["has_like"]))
         raise StopIteration()
 
