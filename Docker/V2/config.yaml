@@ -19,7 +19,7 @@ mop:
   manifesto: "generated_manifest.yaml"
 compute:
   # bump this thing up when we are on the cluster - it introduces overhead
-  chunksize: "256MB"
+  chunksize: "512MB"
   # by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
   # actually quite a tricky thing to do, rule of thumb: more workers = more memory,
   # more threads per worker - more memory actually used by the worker
@@ -27,9 +27,9 @@ compute:
   # also more memory per worker and thread makes the computation more reliable
   # there is a scenario where the computation stops because the workers keep running out of memory and diying/idling.
   # I recommend at least 2GB per thread for reliable operation.
-  n_workers: 2
+  n_workers: 3
   n_threads_per_worker: 2
-  mem_lim: "4GB"
+  mem_lim: "16GB"
 
 features:
   # basic features from the list to compute (computed in this order)
