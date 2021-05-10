@@ -142,7 +142,7 @@ def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
                           converters=converters_for_the_original_dataset
                           )
     else:
-        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=features,
+        ddf = dd.read_csv(unpacked_files, sep='\x01', header=None, names=all_features,
                           blocksize=compute_config['chunksize'],
                           dtype={k: v for k, v in dtypes_of_features.items() if k in all_features},
                           converters=converters_for_the_original_dataset
