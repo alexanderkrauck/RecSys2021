@@ -15,6 +15,17 @@ from datetime import datetime
 def save_log(item):
     return np.log(abs(item) + 1)
 
+def quantile_mapping(x):
+    if x < 421:
+        return 1
+    if x < 1353:
+        return 2
+    if x < 4945:
+        return 3
+    if x < 30774:
+        return 4
+    return 5
+
 div = 2**32
 single_column_features = {
     # TODO: apply log to numerical values (or not?)
@@ -47,7 +58,8 @@ single_column_features = {
     "a_creation_delta": (['timestamp', 'a_account_creation'], lambda x: save_log(x["timestamp"] - x["a_account_creation"]), np.float32, 3),
     "tweet_hash": ("tweet_id", lambda x: int(x, 16)%div , np.uint32, 1),#this introduces a slight error but should be fine with the big picture...
     "b_hash": ("b_user_id", lambda x: int(x, 16)%div , np.uint32, 1),
-    "a_hash": ("a_user_id", lambda x: int(x, 16)%div , np.uint32, 1)
+    "a_hash": ("a_user_id", lambda x: int(x, 16)%div , np.uint32, 1),
+    "quantile": ("a_follower_count", lambda x: quantile_mapping(x), np.uint8, 1)
 }
 
 
