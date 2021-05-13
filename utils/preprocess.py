@@ -132,7 +132,7 @@ def preprocess(
                 fname = TE_get_name(te_feature, te_target)
                 stat_path = os.path.join(stat_dir, fname)
                 ensure_dir_exists(stat_path)
-                other_delayed.append(cnm.to_parquet(stat_path, compute=False))
+                other_delayed.append(cnm.to_parquet(stat_path, compute=False, engine="pyarrow"))
 
                 manifest['TE_stats'][fname] = fname
             else:
@@ -147,7 +147,7 @@ def preprocess(
     new_feature_columns = [col for col in ddf.columns if col not in original_cols or col in feature_config['basic_features'] or col in feature_config['keep_features']]
     if verbosity >= 1:
         print("The following preprocessed columns can be dumped: ", new_feature_columns)
-    delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False)
+    delayed_dump = ddf[new_feature_columns].to_parquet(new_features_dir, compute=False, engine="pyarrow")
 
     # save the manifest if in train mode
     if train_set_mode:

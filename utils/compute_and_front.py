@@ -162,7 +162,7 @@ def uncompress_and_parquetize(comp_dir: str = COMP_DIR, config: dict = None):
     if verbosity > 0: print("Outputting preprocessed files")
     with get_dask_compute_environment(compute_config) as client:
         # now drop the resulting dataframe to the location where we can find it again
-        futures_dump = ddf.to_parquet(prepro_dir, compute=False)
+        futures_dump = ddf.to_parquet(prepro_dir, compute=False, engine="pyarrow")
         # works under assumption that the local machine shares the file system with the dask client
         f = client.persist(futures_dump)
         if verbosity > 0:
