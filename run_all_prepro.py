@@ -12,7 +12,7 @@ if __name__=='__main__':
 
     cfg = config.load_config("mach2_train_config.yaml")
 
-    ddf, delayed_dump, other_delayed = preprocess.preprocess(cfg)
+    ddf, delayed_dump, other_delayed = preprocess(cfg)
 
     compconf = cfg['compute']
     compconf['verbose'] = cfg['verbose']
@@ -28,7 +28,7 @@ if __name__=='__main__':
 
     cfg = config.load_config("mach2_validation_config.yaml")
 
-    ddf, delayed_dump, other_delayed = preprocess.preprocess(cfg)
+    ddf, delayed_dump, other_delayed = preprocess(cfg)
 
     compconf = cfg['compute']
     compconf['verbose'] = cfg['verbose']
