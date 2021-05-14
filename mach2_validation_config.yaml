@@ -19,7 +19,7 @@ mop:
   manifesto: "generated_manifest.yaml"
 compute:
   # bump this thing up when we are on the cluster - it introduces overhead
-  chunksize: "1024MB"
+  chunksize: "512MB"
   # by balancing these three we can adjust for the capacities of a given machine (6 core/ 16 GB ram in my case)
   # actually quite a tricky thing to do, rule of thumb: more workers = more memory,
   # more threads per worker - more memory actually used by the worker
@@ -27,9 +27,9 @@ compute:
   # also more memory per worker and thread makes the computation more reliable
   # there is a scenario where the computation stops because the workers keep running out of memory and diying/idling.
   # I recommend at least 2GB per thread for reliable operation.
-  n_workers: 8
+  n_workers: 20
   n_threads_per_worker: 2
-  mem_lim: "64GB"
+  mem_lim: "48GB"
 
 features:
   # basic features from the list to compute (computed in this order)
@@ -67,12 +67,17 @@ features:
   # target encodings to compute (to be computed as per the nvidia paper) (this one is just an example)
   TE_smoothing_factor: 20
   TE_features:
-    language_encoding:
+    a_hash:
       - "has_reply"
       - "has_like"
       - "has_retweet_comment"
       - "has_retweet"
-    type_encoding:
+    b_hash:
+      - "has_reply"
+      - "has_like"
+      - "has_retweet_comment"
+      - "has_retweet"
+    tweet_hash:
       - "has_reply"
       - "has_like"
       - "has_retweet_comment"
