@@ -143,6 +143,7 @@ feature_stats/
 prprocessed_features/
 training_files/
 validation_files/
+temp_user_mappings/
 
 #dask
 dask-worker-space
