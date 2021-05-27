@@ -1,7 +1,3 @@
-Dockerfile
-requirements.txt
-
-E:\RecSys2021\Docker>docker run be742280115f cat Dockerfile
 FROM gcr.io/google-appengine/python
 LABEL maintainer "Alykhan Tejani <atejain@twitter.com>"
 

@@ -144,6 +144,8 @@ prprocessed_features/
 training_files/
 validation_files/
 temp_user_mappings/
+train_temp_user_mappings/
+
 
 #dask
 dask-worker-space
@@ -160,3 +162,8 @@ test/
 generated_manifest.yaml
 xgb_models_01/
 simple_pandas_run/
+
+#exlude certain types
+*.zip
+*.parquet
+*.csv
