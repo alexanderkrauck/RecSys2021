@@ -120,8 +120,7 @@ class RecSys2021TSVDataLoader():
             if len(self.remaining_files) == 0:
                 raise StopIteration()
 
-            next_file_idx = np.random.randint(0, len(self.remaining_files))
-            self.current_file_name = self.remaining_files.pop(next_file_idx)
+            self.current_file_name = self.remaining_files.pop(0)
 
             self.current_file = pd.read_csv(
                 os.path.join(self.data_directory, self.current_file_name),
@@ -131,9 +130,13 @@ class RecSys2021TSVDataLoader():
                 dtype={k: v for k, v in dtypes_of_features.items() if k in all_features}
             )
         else:
+            if self.current_file_name is None:
+                self.current_file_name = self.remaining_files.pop(0)
             try_files = []
             total_count = 0
             while True:
+
+
                 try_files.append(pd.read_csv(
                     os.path.join(self.data_directory, self.current_file_name),
                     sep='\x01',
@@ -151,15 +154,16 @@ class RecSys2021TSVDataLoader():
                         else:
                             break
                     self.current_index = 0
-                    next_file_idx = np.random.randint(0, len(self.remaining_files))
-                    self.current_file_name = self.remaining_files.pop(next_file_idx)
+                    self.current_file_name = self.remaining_files.pop(0)
                 else:
                     self.current_index += self.batch_size
                     break
-            if len(try_files == 1):
+            if len(try_files) == 1:
                 self.current_file = try_files[0]
             else:
                 self.current_file = pd.concat(try_files)
+                del try_files
+                gc.collect()
 
         self.n_batches_done += 1 
 
