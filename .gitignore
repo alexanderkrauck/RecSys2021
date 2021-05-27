@@ -145,6 +145,8 @@ training_files/
 validation_files/
 temp_user_mappings/
 train_temp_user_mappings/
+data/
+indices/
 
 
 #dask
