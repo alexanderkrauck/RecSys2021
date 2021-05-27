@@ -30,6 +30,22 @@ all_features = ["bert_base_multilingual_cased_tokens",
                 "b_account_creation",
                 "a_follows_b"]
 
+user_centric_cols = ["a_user_id",
+                "a_follower_count",
+                "a_following_count",
+                "a_is_verified",
+                "a_account_creation",
+                "b_user_id",
+                "b_follower_count",
+                "b_following_count",
+                "b_is_verified",
+                "b_account_creation",
+                "reply",
+                "retweet",
+                "retweet_comment",
+                "like",
+                "timestamp"]
+
 all_labels = ["reply",
               "retweet",
               "retweet_comment",
