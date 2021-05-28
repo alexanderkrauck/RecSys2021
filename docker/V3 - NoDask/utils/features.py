@@ -23,16 +23,6 @@ def symlog(item):
         return 0
 
     return np.log(item) * sign
-
-def fsymlog(df):
-
-    
-    sign = np.sign(item)
-    item *= sign #ensure positive
-    if item <= 1:
-        return 0
-
-    return np.log(item) * sign
     
 
 def quantile_mapping(x):
