@@ -9,9 +9,11 @@ import utils.model
 import utils.dataloader
 
 if __name__ == '__main__':
-        dl = utils.dataloader.RecSys2021TSVDataLoader(test_data_location, user_index_file, mode="test", load_n_batches=-1)
+        print("Creating Data Loader")
+        dl = utils.dataloader.RecSys2021TSVDataLoader(test_data_location, user_index_file, mode="test", load_n_batches=-1, verbose=1)
+        print("Creating XGB model")
         recsysxgb = utils.model.RecSysXGB1(xgb_model_location)
-
+        print("Evaluating Test Set")
         recsysxgb.evaluate_test_set(testLoader = dl, output_file = result_output_location)
 
         print("done!")
