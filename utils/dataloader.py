@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 import os
 import gc
+from time import time as ti
 
 from .constants import all_columns, dtypes_of_features, all_features
 from .features import single_column_features, single_column_targets
@@ -65,6 +66,7 @@ class RecSys2021TSVDataLoader():
         batch_size: int = -1, 
         load_n_batches: int = 1, 
         filter_timestamp: int = None,
+        random_file_sampling: bool = False,
         verbose:int = 0):
         """
 
@@ -90,6 +92,7 @@ class RecSys2021TSVDataLoader():
             Level of verboseness.
             <=0: No prints
             >=1: Information regarding each batch
+            >=2: Timing information regarding important separate processes
         """
 
         self.data_directory = data_directory
@@ -97,6 +100,7 @@ class RecSys2021TSVDataLoader():
         self.user_index = pd.read_parquet(user_index_location)
         self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
         self.filter_timestamp = filter_timestamp
+        self.random_file_sampling = random_file_sampling
 
         self.batch_size = batch_size
         self.load_n_batches = load_n_batches
@@ -111,8 +115,19 @@ class RecSys2021TSVDataLoader():
         self.current_index = 0
         return self
 
+
+    def next_file_name__(self):
+        if self.random_file_sampling:
+            n_remaining = len(self.remaining_files)
+            if n_remaining != 1:
+                next_idx = np.random.choice(n_remaining)
+                return self.remaining_files.pop(next_idx)
+        return self.remaining_files.pop(0)
+
     def __next__(self):
         
+        start_delta_t = ti()
+        delta_t = ti()
         if self.n_batches_done == self.load_n_batches:
             raise StopIteration()
 
@@ -120,7 +135,7 @@ class RecSys2021TSVDataLoader():
             if len(self.remaining_files) == 0:
                 raise StopIteration()
 
-            self.current_file_name = self.remaining_files.pop(0)
+            self.current_file_name = self.next_file_name__()
 
             self.current_file = pd.read_csv(
                 os.path.join(self.data_directory, self.current_file_name),
@@ -131,7 +146,7 @@ class RecSys2021TSVDataLoader():
             )
         else:
             if self.current_file_name is None:
-                self.current_file_name = self.remaining_files.pop(0)
+                self.current_file_name = self.next_file_name__()
             try_files = []
             total_count = 0
             while True:
@@ -154,7 +169,7 @@ class RecSys2021TSVDataLoader():
                         else:
                             break
                     self.current_index = 0
-                    self.current_file_name = self.remaining_files.pop(0)
+                    self.current_file_name = self.next_file_name__()
                 else:
                     self.current_index += self.batch_size
                     break
@@ -165,7 +180,9 @@ class RecSys2021TSVDataLoader():
                 del try_files
                 gc.collect()
 
-        self.n_batches_done += 1 
+        self.n_batches_done += 1
+        if self.verbose >= 2: print(f"Loaded Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
 
         if self.filter_timestamp is not None:
             if self.mode == "train":
@@ -184,6 +201,9 @@ class RecSys2021TSVDataLoader():
                     ((self.current_file["like"] >= self.filter_timestamp) | (self.current_file["like"].isnull())) &
                     ((self.current_file["retweet_comment"] >= self.filter_timestamp) | (self.current_file["retweet_comment"].isnull()))
                 ]
+        
+        if self.verbose >= 2: print(f"Timestamp Filtered Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
 
 
         #do prepro 1
@@ -199,8 +219,13 @@ class RecSys2021TSVDataLoader():
             self.current_file["retweet_comment"] = self.current_file["retweet_comment"].fillna(0).astype(np.uint32)
             self.current_file["like"] = self.current_file["like"].fillna(0).astype(np.uint32)
 
+        if self.verbose >= 2: print(f"Did prepro part 1 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
+
 
         #do prepro 2
+
+
         for key, (cols, fun, dt, iterlevel) in single_column_features.items():
             if iterlevel == 1:
                 self.current_file[key] = self.current_file[cols].apply(fun).astype(dt)
@@ -213,8 +238,25 @@ class RecSys2021TSVDataLoader():
                     self.current_file[key] = self.current_file[cols].apply(fun).astype(dt)
                 if iterlevel == 3:
                     self.current_file[key] = self.current_file[cols].apply(fun, axis=1).astype(dt)
-        
 
+
+        if self.verbose >= 2: print(f"Did prepro part 2 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
+        #do prepro 3 (much faster like this than with apply)
+        s = self.current_file["a_account_creation"] - self.current_file["b_account_creation"]
+        sig = np.sign(s)
+        self.current_file["a_b_creation_delta"] = (np.log(s * sig + 1) * sig).astype(np.float32)
+
+        s = self.current_file["timestamp"] - self.current_file["a_account_creation"]
+        sig = np.sign(s)
+        self.current_file["a_creation_delta"] = (np.log(s * sig + 1) * sig).astype(np.float32)
+
+        s = self.current_file["timestamp"] - self.current_file["b_account_creation"]
+        sig = np.sign(s)
+        self.current_file["b_creation_delta"] = (np.log(s * sig + 1) * sig).astype(np.float32)
+
+        if self.verbose >= 2: print(f"Did prepro part 3 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
         #drop not needed cols
         self.current_file = self.current_file.drop(
             ["bert_base_multilingual_cased_tokens", "hashtags", "medias", "links", "domains", "type", "language", "timestamp"], 
@@ -225,12 +267,20 @@ class RecSys2021TSVDataLoader():
         self.current_file["a_user_id_num"] = self.current_file["a_user_id"].apply(lambda x: int(x, base=16)%md).astype(np.uint64)
         self.current_file["b_user_id_num"] = self.current_file["b_user_id"].apply(lambda x: int(x, base=16)%md).astype(np.uint64)
 
+
         #this is very RAM costly for short periods of time (+15GB spikes ontop of the normal)
         gc.collect()
-        self.current_file = pd.merge(self.current_file, self.user_index, how="left", left_on="a_user_id_num", right_index=True)
+        delta_t = ti()
+        #self.current_file = pd.merge(self.current_file, self.user_index, how="left", left_on="a_user_id_num", right_index=True)
+        self.current_file  = self.current_file.join(self.user_index, on="a_user_id_num")
         gc.collect()
-        self.current_file = pd.merge(self.current_file, self.user_index, how="left", left_on="b_user_id_num", right_index=True, suffixes=("_A", "_B"))  
+        #self.current_file = pd.merge(self.current_file, self.user_index, how="left", left_on="b_user_id_num", right_index=True, suffixes=("_A", "_B"))  
+        self.current_file  = self.current_file.join(self.user_index, on="b_user_id_num", lsuffix="_A", rsuffix="_B")
         gc.collect()
+
+
+        if self.verbose >= 2: print(f"Merged Users of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
 
 
         #Extract TE
@@ -241,13 +291,16 @@ class RecSys2021TSVDataLoader():
                     user_prior = (self.current_file[f"n_{target}{as_user}{user}"] / self.current_file[f"n_present{as_user}{user}"]).fillna(0)
                     self.current_file[f"TE_{target}{as_user}{user}"] = (self.current_file[f"n_present{as_user}{user}"] * user_prior + TE_smoothing * prior) / (TE_smoothing + self.current_file[f"n_present{as_user}{user}"])
         
+        if self.verbose >= 2: print(f"Extracted TE of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        delta_t = ti()
+
         #safety
         self.current_file.fillna(0)
 
         #Drop unneccesary cols
         self.current_file = self.current_file.drop(["a_user_id_num", "b_user_id_num", "a_account_creation", "b_account_creation", "a_user_id"], axis=1)
 
-        if self.verbose >= 1: print(f"Finished Batch Nr. {self.n_batches_done} from file {self.current_file_name}!")
+        if self.verbose >= 1: print(f"Finished Batch Nr. {self.n_batches_done} from file {self.current_file_name} in {ti() - start_delta_t:.2f}s!")
         if self.mode != "test":
             reply, retweet, retweet_comment, like = (list(self.current_file["has_reply"]), list(self.current_file["has_retweet"]), list(self.current_file["has_retweet_comment"]), list(self.current_file["has_like"]))
             self.current_file = self.current_file.drop(["reply", "retweet", "retweet_comment", "like"], axis=1)

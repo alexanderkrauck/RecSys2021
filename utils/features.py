@@ -23,7 +23,7 @@ def symlog(item):
         return 0
 
     return np.log(item) * sign
-    
+
 
 def quantile_mapping(x):
     if x < 421:
@@ -60,9 +60,9 @@ single_column_features = {
     "b_following" :('b_following_count', save_log, np.float32, 1),
     "day_of_week" :('timestamp', lambda x: datetime.fromtimestamp(x).weekday(), np.uint8, 1),
     "hour_of_day":('timestamp', lambda x: datetime.fromtimestamp(x).hour, np.uint8, 1),
-    "b_creation_delta": (['timestamp', 'b_account_creation'], lambda x: symlog(x["timestamp"] - x["b_account_creation"]), np.float32, 3),
-    "a_creation_delta": (['timestamp', 'a_account_creation'], lambda x: symlog(x["timestamp"] - x["a_account_creation"]), np.float32, 3),
-    "a_b_creation_delta": (['a_account_creation', 'b_account_creation'], lambda x: symlog(x["a_account_creation"] - x["b_account_creation"]), np.float32, 3),
+    #"b_creation_delta": (['timestamp', 'b_account_creation'], lambda x: symlog(x["timestamp"] - x["b_account_creation"]), np.float32, 3),
+    #"a_creation_delta": (['timestamp', 'a_account_creation'], lambda x: symlog(x["timestamp"] - x["a_account_creation"]), np.float32, 3),
+    #"a_b_creation_delta": (['a_account_creation', 'b_account_creation'], lambda x: symlog(x["a_account_creation"] - x["b_account_creation"]), np.float32, 3),
     #"tweet_hash": ("tweet_id", lambda x: int(x, 16)%div , np.uint32, 1),#this introduces a slight error but should be fine with the big picture...
     #"b_hash": ("b_user_id", lambda x: int(x, 16)%div , np.uint32, 1),
     #"a_hash": ("a_user_id", lambda x: int(x, 16)%div , np.uint32, 1),

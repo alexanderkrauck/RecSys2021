@@ -2,7 +2,7 @@
 
 test_data_location = "test"
 user_index_file = "user_index.parquet"
-xgb_model_location = "xgb_models_05_submission"
+xgb_model_location = "xgb_models_06_submission"
 result_output_location = "results.csv"
 
 import utils.model

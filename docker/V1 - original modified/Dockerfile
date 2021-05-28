@@ -10,7 +10,6 @@ RUN pip install torch==1.7.1+cpu -f https://download.pytorch.org/whl/torch_stabl
 ADD requirements.txt /app/requirements.txt
 
 RUN pip install -r /app/requirements.txt
-RUN python -m pip install "dask[complete]" 
 
 ADD . /app
 WORKDIR /app
