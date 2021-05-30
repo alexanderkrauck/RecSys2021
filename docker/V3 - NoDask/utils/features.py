@@ -23,7 +23,7 @@ def symlog(item):
         return 0
 
     return np.log(item) * sign
-    
+
 
 def quantile_mapping(x):
     if x < 421:
