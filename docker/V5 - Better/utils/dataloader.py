@@ -67,7 +67,6 @@ class RecSys2021TSVDataLoader():
         load_n_batches: int = 1, 
         filter_timestamp: int = None,
         remove_day_counts: bool = False,
-        keep_user_percent: float = 1,
         random_file_sampling: bool = False,
         verbose:int = 0):
         """
@@ -90,43 +89,28 @@ class RecSys2021TSVDataLoader():
         filter_timestamp: int
             If supplied for "train" mode it only returns data which happens before the timestam and for "val" it only returns data after the timestamp.
             "test" data is unaffected.
-        remove_day_counts: bool
-            If true, then the user activity counts per day are not used in the dataloader
-        keep_user_percent: float
-            Can be a number in the inverval [0,1] and decides how many percent of the user index is randomly used.
-            E.g. if it is 0.6 then 60% of the users in the user index are samples and 40% are randomly not used.
         verbose: int
             Level of verboseness.
             <=0: No prints
             >=1: Information regarding each batch
             >=2: Timing information regarding important separate processes
         """
-        dt = ti()
+
         self.data_directory = data_directory
         self.mode = mode
+        self.user_index = pd.read_parquet(user_index_location)
+        self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
+        if remove_day_counts:
+            keep_cols = [col for col in self.user_index.columns if "n_day_" not in col]
+            self.user_index = self.user_index[keep_cols]
+        self.filter_timestamp = filter_timestamp
+        self.random_file_sampling = random_file_sampling
+
         self.batch_size = batch_size
         self.load_n_batches = load_n_batches
         self.usecols = all_columns if mode != "test" else all_features
         self.verbose = verbose
-        self.filter_timestamp = filter_timestamp
-        self.random_file_sampling = random_file_sampling
         
-        if self.verbose >= 2:print("Loading User Index")
-        self.user_index = pd.read_parquet(user_index_location)
-        self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
-        
-        if remove_day_counts:
-            if self.verbose >= 2:print("Removing day counts")
-            keep_cols = [col for col in self.user_index.columns if "n_day_" not in col]
-            self.user_index = self.user_index[keep_cols]
-        if keep_user_percent < 1:
-            if self.verbose >= 2:print(f"Randomly keeping only {keep_user_percent * 100}% of the users.")
-            self.user_index = self.user_index.sample(frac=keep_user_percent)
-        
-        if self.verbose >= 1: print(f"Created Dataloader in {ti()-dt:.2f} seconds!")
-
-
-
     def __iter__(self):
         self.remaining_files = os.listdir(self.data_directory)
 

@@ -49,7 +49,7 @@ class RecSys2021BaseModel(ABC):
 
                     output.write(f'{tweet_id},{user_id},{reply_pred},{retweet_pred},{retweet_comment_pred},{like_pred}\n')
         
-
+    #TODO: ADD "fair" evaluation with quantiles.
     def evaluate_validation_set(self, validationLoader: Iterable):
         """Calculates the official RecSys metrics for a dataset
 
@@ -91,19 +91,6 @@ class RecSys2021BaseModel(ABC):
 
             quantiles.extend(quantile)
         
-        reply_preds = np.array(reply_preds)
-        retweet_preds = np.array(retweet_preds)
-        retweet_comment_preds = np.array(retweet_comment_preds)
-        like_preds = np.array(like_preds)
-
-        reply_targets = np.array(reply_targets)
-        retweet_targets = np.array(retweet_targets)
-        retweet_comment_targets = np.array(retweet_comment_targets)
-        like_targets = np.array(like_targets)
-
-        quantiles = np.array(quantiles)
-
-
         result_groups={}
 
         reply_rces = []
@@ -230,8 +217,7 @@ class RecSysXGB1(RecSys2021BaseModel):
             targets: tuple,
             xgb_parameters: dict,
             feature_columns: List = None,
-            save_dir: str = None,
-            verbose: int = 0
+            save_dir: str = None
         ):
         """Train in-memory with a pandas train set. 
         
@@ -255,7 +241,7 @@ class RecSysXGB1(RecSys2021BaseModel):
             feature_columns = [c for c in train_set.columns if c not in self.targets__]
             
         for target_name, target in zip(self.targets__, targets):
-            if verbose >= 1: print(f"Now training {target_name} clf.")
+
             dtrain = xgb.DMatrix(train_set[feature_columns], label=target)
             clf = xgb.train(xgb_parameters, dtrain, 10)
 
@@ -263,49 +249,6 @@ class RecSysXGB1(RecSys2021BaseModel):
             if save_dir is not None:
                 Path(save_dir).mkdir(parents=True, exist_ok=True)
                 clf.save_model(join(save_dir, target_name))
-
-            if verbose >= 1: print(f"Finished training {target_name} clf.")
-        if verbose >= 1: print(f"Finished training all clfs.")
-
-
-    def fit(self,
-            train_loader: Iterable,
-            xgb_parameters: dict,
-            save_dir: str = None,
-            verbose: int = 0
-        ):
-        """Train in-memory with a pandas train set. 
-        
-
-        Parameters
-        ----------
-        train_loader: Iterable
-            The dataloader for the train data.
-        xgb_parameters: dict
-            The configuration for the XGB model as specified in https://xgboost.readthedocs.io/en/latest/parameter.html
-        save_dir: str
-            The directory where models will be stored if given
-        verbose: int
-            Level of verboseness.
-        """
-        
-        raise NotImplementedError("Implement this!")
-
-        for target_name, target in zip(self.targets__, targets):
-            if verbose >= 1: print(f"Now training {target_name} clf.")
-            dtrain = xgb.DMatrix(train_set[feature_columns], label=target)
-            clf = xgb.train(xgb_parameters, dtrain, 10)
-
-            self.clfs_[target_name] = clf
-            if save_dir is not None:
-                Path(save_dir).mkdir(parents=True, exist_ok=True)
-                clf.save_model(join(save_dir, target_name))
-
-            if verbose >= 1: print(f"Finished training {target_name} clf.")
-        if verbose >= 1: print(f"Finished training all clfs.")
-
-
-            
         
             
     def infer(self, x, quantile = None):

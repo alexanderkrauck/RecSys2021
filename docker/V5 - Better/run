@@ -1,8 +1,8 @@
 #!/env/bin/python
 
 test_data_location = "test"
-user_index_file = "user_index.parquet"
-xgb_model_location = "xgb_models_06_submission"
+user_index_file = "train_user_index.parquet"
+xgb_model_location = "xgb_models_11_changed_dl_validation_run"
 result_output_location = "results.csv"
 
 import utils.model
@@ -15,7 +15,8 @@ if __name__ == '__main__':
                 mode="test", 
                 load_n_batches=-1, 
                 batch_size = 1000000,#1 million
-                verbose=1
+                verbose=1,
+                remove_day_counts = True
                 )
 
         print("Creating XGB model")

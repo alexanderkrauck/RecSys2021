@@ -101,32 +101,24 @@ class RecSys2021TSVDataLoader():
             >=1: Information regarding each batch
             >=2: Timing information regarding important separate processes
         """
-        dt = ti()
+
         self.data_directory = data_directory
         self.mode = mode
+        self.user_index = pd.read_parquet(user_index_location)
+        self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
+        if remove_day_counts:
+            keep_cols = [col for col in self.user_index.columns if "n_day_" not in col]
+            self.user_index = self.user_index[keep_cols]
+        if keep_user_percent < 1:
+            self.user_index = self.user_index.sample(frac=keep_user_percent)
+        self.filter_timestamp = filter_timestamp
+        self.random_file_sampling = random_file_sampling
+
         self.batch_size = batch_size
         self.load_n_batches = load_n_batches
         self.usecols = all_columns if mode != "test" else all_features
         self.verbose = verbose
-        self.filter_timestamp = filter_timestamp
-        self.random_file_sampling = random_file_sampling
         
-        if self.verbose >= 2:print("Loading User Index")
-        self.user_index = pd.read_parquet(user_index_location)
-        self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
-        
-        if remove_day_counts:
-            if self.verbose >= 2:print("Removing day counts")
-            keep_cols = [col for col in self.user_index.columns if "n_day_" not in col]
-            self.user_index = self.user_index[keep_cols]
-        if keep_user_percent < 1:
-            if self.verbose >= 2:print(f"Randomly keeping only {keep_user_percent * 100}% of the users.")
-            self.user_index = self.user_index.sample(frac=keep_user_percent)
-        
-        if self.verbose >= 1: print(f"Created Dataloader in {ti()-dt:.2f} seconds!")
-
-
-
     def __iter__(self):
         self.remaining_files = os.listdir(self.data_directory)
 
