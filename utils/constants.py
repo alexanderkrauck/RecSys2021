@@ -122,5 +122,12 @@ __media_type_mapping = {"Photo":0, "Video":1, "GIF":2, "" :4}
 
 __language_mapping = pd.read_csv(os.path.join(ROOT_DIR,"language_mappings.csv"), index_col="language_id")["encode"].to_dict()
 
+user_group_weights = {1: 1/1.0130917460992925, 2: 1/1.0303799771448288, 3: 1/1.067847570684079, 4: 1/1.1811149549578355, 5: 1/2.3024519531001713}
+
+reply_weights = {0: 0.02856209176374005, 1: 0.97143790823626}
+like_weights = {0: 0.39659210314819315, 1: 0.6034078968518068}
+retweet_weights = {0: 0.08755434847585154, 1: 0.9124456515241485}
+retweet_comment_weights = {0: 0.00695653848861754, 1: 0.9930434615113825}
+
 all_columns = all_features + all_labels
 

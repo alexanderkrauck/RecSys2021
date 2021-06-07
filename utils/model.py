@@ -20,6 +20,8 @@ import numpy as np
 from sklearn.metrics import average_precision_score, log_loss
 
 
+from .constants import user_group_weights, like_weights, reply_weights, retweet_comment_weights, retweet_weights
+
 #Convention Imports
 from abc import ABC, abstractmethod
 from typing import Union, List, Tuple, Callable, Dict, Iterable
@@ -217,19 +219,26 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
         for ep in range(1, n_epochs+1):
             for x, quantile, (reply, retweet, retweet_comment, like) in dl:
 
+                reply_wei = torch.tensor([reply_weights[it] for it in reply], device=self.device, dtype=torch.float)
+                like_wei = torch.tensor([like_weights[it] for it in like], device=self.device, dtype=torch.float)
+                retweet_comment_wei = torch.tensor([retweet_comment_weights[it] for it in retweet_comment], device=self.device, dtype=torch.float)
+                retweet_wei = torch.tensor([retweet_weights[it] for it in retweet], device=self.device, dtype=torch.float)
+
                 reply = torch.tensor(reply, device=self.device, dtype=torch.float)
                 retweet = torch.tensor(retweet, device=self.device, dtype=torch.float)
                 retweet_comment = torch.tensor(retweet_comment, device=self.device, dtype=torch.float)
                 like = torch.tensor(like, device=self.device, dtype=torch.float)
 
+                quantile_wei = torch.tensor([user_group_weights[it] for it in quantile], device=self.device, dtype=torch.float)
+
                 reply_pred, retweet_pred ,retweet_comment_pred, like_pred = self.forward(x)
 
-                reply_loss = F.binary_cross_entropy(reply_pred, reply)
-                retweet_loss = F.binary_cross_entropy(retweet_pred, retweet)
-                retweet_comment_loss = F.binary_cross_entropy(retweet_comment_pred, retweet_comment)
-                like_loss = F.binary_cross_entropy(like_pred, like)
+                reply_loss = F.binary_cross_entropy(reply_pred, reply, reduction="none") * quantile_wei * reply_wei
+                retweet_loss = F.binary_cross_entropy(retweet_pred, retweet, reduction="none") * quantile_wei * retweet_wei
+                retweet_comment_loss = F.binary_cross_entropy(retweet_comment_pred, retweet_comment, reduction="none") * quantile_wei * retweet_comment_wei
+                like_loss = F.binary_cross_entropy(like_pred, like, reduction="none") * quantile_wei * like_wei
 
-                loss = reply_loss + retweet_comment_loss + retweet_loss + like_loss
+                loss = reply_loss.mean() + retweet_comment_loss.mean() + retweet_loss.mean() + like_loss.mean()
 
                 optimizer.zero_grad()
                 loss.backward()
