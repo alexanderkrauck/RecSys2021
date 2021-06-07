@@ -44,7 +44,8 @@ user_centric_cols = ["a_user_id",
                 "retweet",
                 "retweet_comment",
                 "like",
-                "timestamp"]
+                "timestamp",
+                "type"]
 
 all_labels = ["reply",
               "retweet",

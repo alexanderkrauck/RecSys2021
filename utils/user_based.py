@@ -9,7 +9,7 @@ from datetime import datetime
 import time
 
 
-from .constants import dtypes_of_features, all_columns, all_features, user_centric_cols
+from .constants import dtypes_of_features, all_columns, all_features, user_centric_cols, __type_mapping
 
 md__ = 2**64
 
@@ -47,7 +47,7 @@ def extract_user_information(
         df = pd.read_csv(join(data_location_folder, file), sep='\x01', header=None, names=all_columns, 
             dtype={k: v for k, v in dtypes_of_features.items() if k in all_features}, usecols=user_centric_cols)
 
-        
+
         if cutoff_timestamp is not None:
             print(f"\r[{i+1}/{len(files)}][{delta:.2f} s/it]Applying filters for {file}...", end="")
             df = df[
@@ -64,38 +64,38 @@ def extract_user_information(
         df["b_user_id"] = df["b_user_id"].apply(lambda x: int(x, base=16)%md__).astype(np.uint64)
 
         user_dfs = []
-        cols = ["user_id", "follower_count", "following_count", "verified", "account_creation", "timestamp", "action_type"]
+        
+        cols = ["user_id", "follower_count", "following_count", "verified", "account_creation", "timestamp", "type", "action_type"]
 
 
-        df_a = df[["a_user_id", "a_follower_count", "a_following_count", "a_is_verified", "a_account_creation","timestamp"]].copy()
-        df_a.loc[:,"action_type"] = 0
+        df_a = df[["a_user_id", "a_follower_count", "a_following_count", "a_is_verified", "a_account_creation", "timestamp", "type"]].copy()
+        df_a.loc[:,"action_type"] = "n_present_a_"+df_a["type"]
         df_a.columns = cols
         df_a["day"] = df_a["timestamp"].apply(lambda x: datetime.fromtimestamp(x).timetuple().tm_yday).astype(np.uint16)#day of year
         user_dfs.append(df_a)
 
-        df_b = df[["b_user_id", "b_follower_count", "b_following_count", "b_is_verified", "b_account_creation", "timestamp"]].copy()
-        df_b.loc[:,"action_type"] = 1
+        df_b = df[["b_user_id", "b_follower_count", "b_following_count", "b_is_verified", "b_account_creation", "timestamp", "type"]].copy()
+        df_b.loc[:,"action_type"] = "n_present_b_"+df_a["type"]
         df_b.columns = cols
         user_dfs.append(df_b)
 
         for idx, col in enumerate(['reply',"retweet","retweet_comment","like"]):
             #userb_encode
-            temp_df = df[["b_user_id", "b_follower_count", "b_following_count", "b_is_verified", "b_account_creation", col]].copy()
+            temp_df = df[["b_user_id", "b_follower_count", "b_following_count", "b_is_verified", "b_account_creation",col, "type"]].copy()
             temp_df = temp_df.dropna(subset=[col])
-            temp_df.loc[:,"action_type"] = idx + 2
+            temp_df.loc[:,"action_type"] = "n_"+col+"_b_"+temp_df["type"]
             temp_df.columns = cols
             temp_df["day"] = temp_df["timestamp"].apply(lambda x: datetime.fromtimestamp(x).timetuple().tm_yday).astype(np.uint16)#day of year
             user_dfs.append(temp_df)
             #usera_encode
-            temp_df = df[["a_user_id", "a_follower_count", "a_following_count", "a_is_verified", "a_account_creation", col]].copy()
+            temp_df = df[["a_user_id", "a_follower_count", "a_following_count", "a_is_verified", "a_account_creation",col, "type"]].copy()
             temp_df = temp_df.dropna(subset=[col])
-            temp_df.loc[:,"action_type"] = idx + 6
+            temp_df.loc[:,"action_type"] = "n_"+col+"_a_"+temp_df["type"]
             temp_df.columns = cols
             user_dfs.append(temp_df)
 
 
         user_df = pd.concat(user_dfs)
-
         gb = user_df.groupby("user_id")
         gb_cnt = user_df.groupby(["user_id", "action_type"])
         gb_day_cnt = user_df.groupby(["user_id", "day"])
@@ -114,7 +114,6 @@ def extract_user_information(
 
         cnt_res = gb_cnt.size().unstack(fill_value=0)
         day_cnt = gb_day_cnt.size().unstack(fill_value=0)
-        cnt_res.columns =  ["n_present_a","n_present_b","n_reply_b","n_retweet_b","n_retweet_comment_b","n_like_b","n_reply_a","n_retweet_a","n_retweet_comment_a","n_like_a"]
         day_cnt.columns = ["n_day_"+str(int(a)) for a in day_cnt.columns]
 
         print(f"\r[{i+1}/{len(files)}][{delta:.2f} s/it]Merging {file}...", end="")

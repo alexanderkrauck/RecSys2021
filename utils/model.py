@@ -13,6 +13,7 @@ from os.path import join
 from pathlib import Path
 import torch
 from torch import nn
+import torch.nn.functional as F
 import xgboost as xgb
 import pandas as pd
 import numpy as np
@@ -194,7 +195,7 @@ class SimpleFFN(torch.nn.Module):
 
 
 class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
-    def __init__(self, n_input_features: int):
+    def __init__(self, model_dir, n_input_features: int, device="cpu"):
         super(RecSysNeural1, self).__init__()
 
         self.like_net = SimpleFFN(n_input_features)
@@ -202,35 +203,84 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
         self.retweet_comment_net = SimpleFFN(n_input_features)
         self.retweet_net = SimpleFFN(n_input_features)
 
+        self.device = device
+
     def forward(self, x):
-        return self.reply_net(x), self.retweet_net(x) ,self.retweet_comment_net(x), self.like_net(x)
+        x = torch.tensor(x.to_numpy().astype(np.float32), dtype=torch.float, device=self.device)
 
-    def infer(self, x):
-        raise NotImplementedError("Implement this!")
 
+        return self.reply_net(x).squeeze(), self.retweet_net(x).squeeze() ,self.retweet_comment_net(x).squeeze(), self.like_net(x).squeeze()
+
+    def fit(self, dl, n_epochs, lr = 1e-3):
+        optimizer = torch.optim.Adam(self.parameters(), lr = lr)
+
+        for ep in range(1, n_epochs+1):
+            for x, quantile, (reply, retweet, retweet_comment, like) in dl:
+
+                reply = torch.tensor(reply, device=self.device, dtype=torch.float)
+                retweet = torch.tensor(retweet, device=self.device, dtype=torch.float)
+                retweet_comment = torch.tensor(retweet_comment, device=self.device, dtype=torch.float)
+                like = torch.tensor(like, device=self.device, dtype=torch.float)
+
+                reply_pred, retweet_pred ,retweet_comment_pred, like_pred = self.forward(x)
+
+                reply_loss = F.binary_cross_entropy(reply_pred, reply)
+                retweet_loss = F.binary_cross_entropy(retweet_pred, retweet)
+                retweet_comment_loss = F.binary_cross_entropy(retweet_comment_pred, retweet_comment)
+                like_loss = F.binary_cross_entropy(like_pred, like)
+
+                loss = reply_loss + retweet_comment_loss + retweet_loss + like_loss
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+
+    @torch.no_grad()
+    def infer(self, x, quantile = None):
+        preds = self.forward(x)
+        return (list(preds[0].detach().cpu().numpy()), list(preds[1].detach().cpu().numpy()), list(preds[2].detach().cpu().numpy()), list(preds[3].detach().cpu().numpy()))
+
+    def to(self, device):
+        ret = super(RecSysNeural1, self).to(device)
+        self.device = device
+        return ret
 
 class RecSysXGB1(RecSys2021BaseModel):
 
-    def __init__(self, model_dir: str = None):
+    def __init__(self, model_dir):
         self.clfs_ = {}
         self.targets__ = ['has_reply', 'has_retweet', 'has_retweet_comment', 'has_like']
 
-
-        if model_dir is not None:
-            for filename in os.listdir(model_dir):
-                booster = xgb.Booster()
-                booster.load_model(join(model_dir,filename))
-                self.clfs_[filename] = booster
+        self.model_dir = model_dir
+        self.load()
 
                 
+    def save(self):
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+        for clf_target in self.clfs_:
+            clf = self.clfs_[clf_target]
+            clf.save_model(join(self.model_dir, clf_target))
+    
+    def load(self):
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+        for filename in os.listdir(self.model_dir):
+            if filename in self.targets__:
+                booster = xgb.Booster()
+                booster.load_model(join(self.model_dir, filename))
+                self.clfs_[filename] = booster
+
+
 
     def train_in_memory(self,
             train_set: pd.DataFrame,
             quantiles: list,
             targets: tuple,
             xgb_parameters: dict,
+            num_boost_rounds: int = 100,
             feature_columns: List = None,
-            save_dir: str = None,
+            resume_if_exists: bool = False,
+            save_to_model_dir: bool = True,
             verbose: int = 0
         ):
         """Train in-memory with a pandas train set. 
@@ -247,8 +297,6 @@ class RecSysXGB1(RecSys2021BaseModel):
         feature_columns: List
             List of column names of the train_set that should be used as training features (X) for the models.
             If None then all features are used
-        save_dir: str
-            The directory where models will be stored if given
         """
         
         if feature_columns is None:
@@ -257,22 +305,24 @@ class RecSysXGB1(RecSys2021BaseModel):
         for target_name, target in zip(self.targets__, targets):
             if verbose >= 1: print(f"Now training {target_name} clf.")
             dtrain = xgb.DMatrix(train_set[feature_columns], label=target)
-            clf = xgb.train(xgb_parameters, dtrain, 10)
+            if target_name in self.clfs_ and resume_if_exists:
+                clf = xgb.train(xgb_parameters, dtrain, num_boost_rounds, xgb_model=self.clfs_[target_name])
+            else:
+                clf = xgb.train(xgb_parameters, dtrain, num_boost_rounds)
 
             self.clfs_[target_name] = clf
-            if save_dir is not None:
-                Path(save_dir).mkdir(parents=True, exist_ok=True)
-                clf.save_model(join(save_dir, target_name))
-
             if verbose >= 1: print(f"Finished training {target_name} clf.")
+        if save_to_model_dir:
+            self.save()
         if verbose >= 1: print(f"Finished training all clfs.")
 
 
     def fit(self,
             train_loader: Iterable,
             xgb_parameters: dict,
-            save_dir: str = None,
-            verbose: int = 0
+            boost_rounds_per_iteration: int = 10,
+            verbose: int = 0,
+            n_epochs: int = 1
         ):
         """Train in-memory with a pandas train set. 
         
@@ -283,27 +333,26 @@ class RecSysXGB1(RecSys2021BaseModel):
             The dataloader for the train data.
         xgb_parameters: dict
             The configuration for the XGB model as specified in https://xgboost.readthedocs.io/en/latest/parameter.html
-        save_dir: str
-            The directory where models will be stored if given
         verbose: int
             Level of verboseness.
+        n_epochs: int
+            Number of times the loader will be iterated.
         """
         
-        raise NotImplementedError("Implement this!")
 
-        for target_name, target in zip(self.targets__, targets):
-            if verbose >= 1: print(f"Now training {target_name} clf.")
-            dtrain = xgb.DMatrix(train_set[feature_columns], label=target)
-            clf = xgb.train(xgb_parameters, dtrain, 10)
-
-            self.clfs_[target_name] = clf
-            if save_dir is not None:
-                Path(save_dir).mkdir(parents=True, exist_ok=True)
-                clf.save_model(join(save_dir, target_name))
-
-            if verbose >= 1: print(f"Finished training {target_name} clf.")
-        if verbose >= 1: print(f"Finished training all clfs.")
-
+        for ep in range(1, n_epochs+1):
+            for df, quantile, target_tuple in train_loader:
+                self.train_in_memory(
+                    df, 
+                    quantile, 
+                    target_tuple, 
+                    xgb_parameters, 
+                    boost_rounds_per_iteration, 
+                    resume_if_exists=True, 
+                    save_to_model_dir=False
+                )
+            if verbose >= 1: print(f"Finished {ep} epochs.")
+        self.save()
 
             
         
@@ -328,6 +377,7 @@ def calculate_ctr(gt):
   return ctr
 
 def compute_rce(pred, gt):
+    pred = (pred - 0.5)*0.999 + 0.5#safety, to allow 0 or 1 values
     cross_entropy = log_loss(gt, pred)
     data_ctr = calculate_ctr(gt)
     strawman_cross_entropy = log_loss(gt, [data_ctr for _ in range(len(gt))])

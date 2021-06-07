@@ -10,9 +10,11 @@ __date__ = "07-05-2021"
 from typing import Union, List, Tuple, Callable, Dict, Iterable
 import pandas as pd
 import numpy as np
+import torch
 import os
 import gc
 from time import time as ti
+from sklearn import preprocessing
 
 from .constants import all_columns, dtypes_of_features, all_features
 from .features import single_column_features, single_column_targets
@@ -69,6 +71,8 @@ class RecSys2021TSVDataLoader():
         remove_day_counts: bool = False,
         keep_user_percent: float = 1,
         random_file_sampling: bool = False,
+        minibatches_size: int = -1,
+        normalize_batch: bool = False,
         verbose:int = 0):
         """
 
@@ -95,6 +99,8 @@ class RecSys2021TSVDataLoader():
         keep_user_percent: float
             Can be a number in the inverval [0,1] and decides how many percent of the user index is randomly used.
             E.g. if it is 0.6 then 60% of the users in the user index are samples and 40% are randomly not used.
+        minibatches_size: int
+            The size of the minibatches that are loaded from the batches. If -1 then full batches are returned. TODO: implement this for training ANNs.
         verbose: int
             Level of verboseness.
             <=0: No prints
@@ -110,19 +116,42 @@ class RecSys2021TSVDataLoader():
         self.verbose = verbose
         self.filter_timestamp = filter_timestamp
         self.random_file_sampling = random_file_sampling
+        self.minibatch_size = minibatches_size
+        self.normalize_batch = normalize_batch
+        if self.minibatch_size != -1:
+            self.batch = None
         
         if self.verbose >= 2:print("Loading User Index")
         self.user_index = pd.read_parquet(user_index_location)
         self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
         
+
+        if keep_user_percent < 1:
+            if self.verbose >= 2:print(f"Randomly keeping only {keep_user_percent * 100}% of the users.")
+            self.user_index = self.user_index.sample(frac=keep_user_percent)
         if remove_day_counts:
             if self.verbose >= 2:print("Removing day counts")
             keep_cols = [col for col in self.user_index.columns if "n_day_" not in col]
             self.user_index = self.user_index[keep_cols]
-        if keep_user_percent < 1:
-            if self.verbose >= 2:print(f"Randomly keeping only {keep_user_percent * 100}% of the users.")
-            self.user_index = self.user_index.sample(frac=keep_user_percent)
         
+        #Extract combined user counts
+        if self.verbose >= 2:print("Extracting combined user counts")
+        combined = {}
+        for ty in ["_TopLevel", "_Retweet", "_Quote"]:
+            for col in self.user_index.columns:
+                if ty in col:
+                    comb = col[:-len(ty)]
+                    if comb not in combined:
+                        combined[comb] = []
+                    combined[comb].append(col)
+        for grp in combined:
+            cols = combined[grp]
+            colsum = self.user_index[cols.pop(0)]
+            for col in cols:
+                colsum = colsum + self.user_index[col]
+            self.user_index[grp] = colsum
+
+        gc.collect()
         if self.verbose >= 1: print(f"Created Dataloader in {ti()-dt:.2f} seconds!")
 
 
@@ -196,8 +225,7 @@ class RecSys2021TSVDataLoader():
 
         return df
 
-    def __next__(self):
-        
+    def load_next_batch__(self):
         start_delta_t = ti()
         delta_t = ti()
         if self.n_batches_done == self.load_n_batches:
@@ -308,14 +336,24 @@ class RecSys2021TSVDataLoader():
         delta_t = ti()
 
 
-        #Extract TE
+        #Extract TEs
         for target in ["reply", "like", "retweet", "retweet_comment"]:
             for as_user in["_a","_b"]:
+                for in_tweet_type in["_TopLevel", "_Retweet", "_Quote"]:
+                    prior = (self.user_index[f"n_{target}{as_user}{in_tweet_type}"] / self.user_index[f"n_present{as_user}{in_tweet_type}"]).mean()
+                    for user in ["_A","_B"]:
+                        user_prior = (df[f"n_{target}{as_user}{in_tweet_type}{user}"] / df[f"n_present{as_user}{in_tweet_type}{user}"]).fillna(0)
+                        df[f"TE_{target}{as_user}{in_tweet_type}{user}"] = (df[f"n_present{as_user}{in_tweet_type}{user}"] * user_prior + TE_smoothing * prior) / (TE_smoothing + df[f"n_present{as_user}{in_tweet_type}{user}"])
+                
                 prior = (self.user_index[f"n_{target}{as_user}"] / self.user_index[f"n_present{as_user}"]).mean()
                 for user in ["_A","_B"]:
                     user_prior = (df[f"n_{target}{as_user}{user}"] / df[f"n_present{as_user}{user}"]).fillna(0)
                     df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + TE_smoothing * prior) / (TE_smoothing + df[f"n_present{as_user}{user}"])
         
+
+
+
+
         if self.verbose >= 2: print(f"Extracted TE of {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
@@ -327,6 +365,44 @@ class RecSys2021TSVDataLoader():
 
         
         if self.verbose >= 1: print(f"Finished Batch Nr. {self.n_batches_done} from file {self.current_file_name} in {ti() - start_delta_t:.2f}s!")
+
+        return df
+
+    def __next__(self):
+        if self.minibatch_size == -1 or self.batch is None:
+            df = self.load_next_batch__()
+
+            if self.normalize_batch:
+                avoid_cols = [
+                    "reply",
+                    "retweet", 
+                    "retweet_comment", 
+                    "like", "has_reply", 
+                    "has_retweet", 
+                    "has_retweet_comment", 
+                    "has_like", 
+                    "tweet_id", 
+                    "b_user_id",
+                    "quantile"
+                    ]
+                take_cols = [col for col in df.columns if col not in avoid_cols]
+                x = df[take_cols].values #returns a numpy array
+                min_max_scaler = preprocessing.MinMaxScaler()
+                x_scaled = min_max_scaler.fit_transform(x)
+                df[take_cols] = x_scaled
+
+            if self.minibatch_size != -1:
+                self.batch = df
+                self.last_minibatch_idx = 0
+
+        if self.minibatch_size != -1:
+            df = self.batch.iloc[self.last_minibatch_idx: self.last_minibatch_idx + self.minibatch_size]
+            self.last_minibatch_idx += self.minibatch_size
+
+            if len(df) < self.minibatch_size:
+                self.batch = None
+
+        
         #seperate quantile
         quantile = list(df["quantile"])
         df = df.drop("quantile", axis=1)
@@ -337,7 +413,7 @@ class RecSys2021TSVDataLoader():
             df = df.drop(["has_reply", "has_retweet", "has_retweet_comment", "has_like"], axis=1)
             df = df.drop(["tweet_id", "b_user_id"], axis=1)
 
-
+                
             return df, quantile, (reply, retweet, retweet_comment, like)
 
 
@@ -345,7 +421,8 @@ class RecSys2021TSVDataLoader():
             tweet_id, b_user_id = (df["tweet_id"], df["b_user_id"])
             df = df.drop(["tweet_id", "b_user_id"], axis=1)
 
-
+            if self.return_as_tensor:
+                df = torch.tensor(df.to_numpy().astype(np.float32), dtype=torch.float, device=self.device)
             return df, quantile, (tweet_id, b_user_id)
 
 
