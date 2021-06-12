@@ -18,7 +18,7 @@ import xgboost as xgb
 import pandas as pd
 import numpy as np
 from sklearn.metrics import average_precision_score, log_loss
-
+from time import strftime
 
 from .constants import user_group_weights, like_weights, reply_weights, retweet_comment_weights, retweet_weights
 
@@ -53,7 +53,7 @@ class RecSys2021BaseModel(ABC):
                     output.write(f'{tweet_id},{user_id},{reply_pred},{retweet_pred},{retweet_comment_pred},{like_pred}\n')
         
 
-    def evaluate_validation_set(self, validationLoader: Iterable):
+    def evaluate_validation_set(self, validationLoader: Iterable, store_results_file = None, validation_run_name = None):
         """Calculates the official RecSys metrics for a dataset
 
         Parameters
@@ -149,6 +149,17 @@ class RecSys2021BaseModel(ABC):
         result_groups[f"TOTAL_retweet_avg_prec"] = np.mean(retweet_avg_precs)
         result_groups[f"TOTAL_retweet_comment_avg_prec"] = np.mean(retweet_comment_avg_precs)
         result_groups[f"TOTAL_like_avg_prec"] = np.mean(like_avg_precs)
+        
+        if store_results_file is not None:
+            if validation_run_name is None:
+                validation_run_name = strftime("%Y-%m-%dT%H-%M-%S")
+            else:
+                validation_run_name = strftime("%Y-%m-%dT%H-%M-%S") + "_" + validation_run_name
+
+            with open("file.txt", 'a') as output:
+                output.write(f"\n{validation_run_name}:\n")
+                for key in result_groups:
+                    output.write(f"{key:32}: {result_groups[key]}\n")
         
         
         return result_groups
