@@ -20,7 +20,6 @@ from .constants import all_columns, dtypes_of_features, all_features
 from .features import single_column_features, single_column_targets
 
 md = 2**64
-TE_smoothing = 20
 
 class RecSys2021PandasDataLoader():
     """Simple In-Memory Pandas Dataloader
@@ -69,10 +68,12 @@ class RecSys2021TSVDataLoader():
         load_n_batches: int = 1, 
         filter_timestamp: int = None,
         remove_day_counts: bool = False,
+        remove_user_counts: bool = False,
         keep_user_percent: float = 1,
         random_file_sampling: bool = False,
         minibatches_size: int = -1,
         normalize_batch: bool = False,
+        TE_smoothing: Dict = {"reply":20, "like":20, "retweet":20, "retweet_comment":20},
         verbose:int = 0):
         """
 
@@ -118,6 +119,8 @@ class RecSys2021TSVDataLoader():
         self.random_file_sampling = random_file_sampling
         self.minibatch_size = minibatches_size
         self.normalize_batch = normalize_batch
+        self.TE_smoothing = TE_smoothing
+        self.remove_user_counts = remove_user_counts
         if self.minibatch_size != -1:
             self.batch = None
         
@@ -295,6 +298,7 @@ class RecSys2021TSVDataLoader():
 
         if self.verbose >= 2: print(f"Did prepro part 2 of {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
+
         #do prepro 3 (much faster like this than with apply)
         s = df["a_account_creation"] - df["b_account_creation"]
         sig = np.sign(s)
@@ -307,6 +311,14 @@ class RecSys2021TSVDataLoader():
         s = df["timestamp"] - df["b_account_creation"]
         sig = np.sign(s)
         df["b_creation_delta"] = (np.log(s * sig + 1) * sig).astype(np.float32)
+
+        s = df["a_follower_count"] / df["b_follower_count"]
+        df["a_b_follower_ratio"] = s
+
+        s = df["a_following_count"] / df["b_following_count"]
+        df["a_b_following_ratio"] = s
+
+
 
         if self.verbose >= 2: print(f"Did prepro part 3 of {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
@@ -343,12 +355,12 @@ class RecSys2021TSVDataLoader():
                     prior = (self.user_index[f"n_{target}{as_user}{in_tweet_type}"] / self.user_index[f"n_present{as_user}{in_tweet_type}"]).mean()
                     for user in ["_A","_B"]:
                         user_prior = (df[f"n_{target}{as_user}{in_tweet_type}{user}"] / df[f"n_present{as_user}{in_tweet_type}{user}"]).fillna(0)
-                        df[f"TE_{target}{as_user}{in_tweet_type}{user}"] = (df[f"n_present{as_user}{in_tweet_type}{user}"] * user_prior + TE_smoothing * prior) / (TE_smoothing + df[f"n_present{as_user}{in_tweet_type}{user}"])
+                        df[f"TE_{target}{as_user}{in_tweet_type}{user}"] = (df[f"n_present{as_user}{in_tweet_type}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{in_tweet_type}{user}"])
                 
                 prior = (self.user_index[f"n_{target}{as_user}"] / self.user_index[f"n_present{as_user}"]).mean()
                 for user in ["_A","_B"]:
                     user_prior = (df[f"n_{target}{as_user}{user}"] / df[f"n_present{as_user}{user}"]).fillna(0)
-                    df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + TE_smoothing * prior) / (TE_smoothing + df[f"n_present{as_user}{user}"])
+                    df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{user}"])
         
 
 
@@ -362,6 +374,9 @@ class RecSys2021TSVDataLoader():
 
         #Drop unneccesary cols
         df = df.drop(["a_user_id_num", "b_user_id_num", "a_account_creation", "b_account_creation", "a_user_id"], axis=1)
+
+        if self.remove_user_counts:
+            df = df.drop([col for col in df.columns if col.startswith("n_")], axis=1)
 
         
         if self.verbose >= 1: print(f"Finished Batch Nr. {self.n_batches_done} from file {self.current_file_name} in {ti() - start_delta_t:.2f}s!")

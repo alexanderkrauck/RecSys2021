@@ -43,10 +43,10 @@ single_column_features = {
     #   apply level (1: series lambda/apply, 2: df row lambda, 3: df map_partitions))
     # also highly recommended to specify at least one of the features from all_labels in the requirements even if not
     #   needed for computation for all target derived features.
-    "bert_token_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: save_log(len(bertenc.split('\t'))), np.uint32, 1),
-    "n_photos": ('medias', lambda v: save_log(Counter(v.split('\t'))['Photo']) if v else -1, np.float32, 1),
-    "n_videos": ('medias', lambda v: save_log(Counter(v.split('\t'))['Video']) if v else -1, np.float32, 1),
-    "n_gifs": ('medias', lambda v: save_log(Counter(v.split('\t'))['GIF']) if v else -1, np.float32, 1),
+    "bert_token_len": ('bert_base_multilingual_cased_tokens', lambda bertenc: save_log(len(bertenc.split('\t'))), np.float32, 1),
+    "photo_count": ('medias', lambda v: save_log(Counter(v.split('\t'))['Photo']) if v else -1, np.float32, 1),
+    "video_count": ('medias', lambda v: save_log(Counter(v.split('\t'))['Video']) if v else -1, np.float32, 1),
+    "gif_count": ('medias', lambda v: save_log(Counter(v.split('\t'))['GIF']) if v else -1, np.float32, 1),
     #"reply_age": (['reply', 'timestamp', 'has_reply'], lambda df: (df['reply']-df['timestamp'])*df['has_reply'], np.uint32, 3),
     #"like_age": (['like', 'timestamp', 'has_like'], lambda df: (df['like']-df['timestamp'])*df['has_like'], np.uint32, 3),
     #"retweet_age": (['retweet', 'timestamp', 'has_retweet'], lambda df: (df['retweet']-df['timestamp'])*df['has_retweet'], np.uint32, 3),
