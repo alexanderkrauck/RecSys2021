@@ -73,6 +73,7 @@ class RecSys2021TSVDataLoader():
         random_file_sampling: bool = False,
         minibatches_size: int = -1,
         normalize_batch: bool = False,
+        add_normal_TE_noise_std: float = 0,
         TE_smoothing: Dict = {"reply":20, "like":20, "retweet":20, "retweet_comment":20},
         verbose:int = 0):
         """
@@ -108,6 +109,9 @@ class RecSys2021TSVDataLoader():
             If true then of all avaiable files in the given directory, the files will be sampled in random order instead of alphabetically.
         normalize_batch: bool
             If true, the whole batch will be normalized columnwise und a sklearn functionality.
+        add_normal_TE_noise_std: float
+            If this is a positive number, then gaussian noise with the specified std will be added to all produced target encodings equally.
+            This can be good to avoid overfitting!
         TE_smoothing: dict
             A dict that contains the target encoding smoothing hyperparameter for each of the targets as key.
         verbose: int
@@ -129,6 +133,7 @@ class RecSys2021TSVDataLoader():
         self.normalize_batch = normalize_batch
         self.TE_smoothing = TE_smoothing
         self.remove_user_counts = remove_user_counts
+        self.add_normal_TE_noise_std = add_normal_TE_noise_std
         if self.minibatch_size != -1:
             self.batch = None
         
@@ -370,15 +375,18 @@ class RecSys2021TSVDataLoader():
                     user_prior = (df[f"n_{target}{as_user}{user}"] / df[f"n_present{as_user}{user}"]).fillna(0)
                     df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{user}"])
         
+        #safety 
+        df = df.fillna(-10)
 
-
+        if self.add_normal_TE_noise_std > 0:
+            for col in df.columns:
+                if col.startswith("TE_"):
+                    df[col] += np.random.normal(0, scale = self.add_normal_TE_noise_std, size = len(df))
 
 
         if self.verbose >= 2: print(f"Extracted TE of {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
-        #safety
-        df = df.fillna(-1)
 
         #Drop unneccesary cols
         df = df.drop(["a_user_id_num", "b_user_id_num", "a_account_creation", "b_account_creation", "a_user_id"], axis=1)
