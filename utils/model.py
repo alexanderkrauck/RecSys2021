@@ -53,7 +53,7 @@ class RecSys2021BaseModel(ABC):
                     output.write(f'{tweet_id},{user_id},{reply_pred},{retweet_pred},{retweet_comment_pred},{like_pred}\n')
         
 
-    def evaluate_validation_set(self, validationLoader: Iterable, store_results_file = None, validation_run_name = None):
+    def evaluate_validation_set(self, validationLoader: Iterable, store_results_file: str = None, validation_run_name: str = None):
         """Calculates the official RecSys metrics for a dataset
 
         Parameters
@@ -61,6 +61,10 @@ class RecSys2021BaseModel(ABC):
         validationLoader: Iterable
             The dataloader for the validation data. The dataloader is expected to always return a tuple of the batch,
             plus the labels of the batch in the order: batch, (reply_target, retweet_target, retweet_comment_target, like_target)
+        store_results_file: str
+            If this is not None, the returned results will also be stored in the file that is given in this argument
+        validation_run_name: str
+            This only has effect if "store_results_file" is also passed. In the file the results will be titled by this string.
         
         Returns
         ----------
@@ -156,12 +160,12 @@ class RecSys2021BaseModel(ABC):
             else:
                 validation_run_name = strftime("%Y-%m-%dT%H-%M-%S") + "_" + validation_run_name
 
-            with open("file.txt", 'a') as output:
+            with open(store_results_file, 'a') as output:
                 output.write(f"\n{validation_run_name}:\n")
                 for key in result_groups:
                     output.write(f"{key:32}: {result_groups[key]}\n")
         
-        
+
         return result_groups
 
 
@@ -391,15 +395,16 @@ class RecSysXGB1(RecSys2021BaseModel):
 
 
 """Functions copied from https://recsys-twitter.com/code/snippets"""
-def calculate_ctr(gt):
-  positive = len([x for x in gt if x == 1])
-  ctr = positive/float(len(gt))
+def calculate_ctr(target):
+  positive = len([x for x in target if x == 1])
+  ctr = positive/float(len(target))
   return ctr
 
-def compute_rce(pred, gt):
-    pred = (pred - 0.5)*0.999 + 0.5#safety, to allow 0 or 1 values
-    cross_entropy = log_loss(gt, pred)
-    data_ctr = calculate_ctr(gt)
-    strawman_cross_entropy = log_loss(gt, [data_ctr for _ in range(len(gt))])
+def compute_rce(pred, target, safety = False):
+    if safety:
+        pred = (pred - 0.5)*0.999 + 0.5#safety, to allow 0 or 1 values
+    cross_entropy = log_loss(target, pred)
+    data_ctr = calculate_ctr(target)
+    strawman_cross_entropy = log_loss(target, [data_ctr for _ in range(len(target))])
     return (1.0 - cross_entropy/strawman_cross_entropy) * 100.0
   

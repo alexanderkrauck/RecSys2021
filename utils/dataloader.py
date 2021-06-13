@@ -97,11 +97,19 @@ class RecSys2021TSVDataLoader():
             "test" data is unaffected.
         remove_day_counts: bool
             If true, then the user activity counts per day are not used in the dataloader
+        remove_user_counts: bool
+            If true then all count features, like the number of activities for a given user, will be removed in the dataframe.
         keep_user_percent: float
             Can be a number in the inverval [0,1] and decides how many percent of the user index is randomly used.
             E.g. if it is 0.6 then 60% of the users in the user index are samples and 40% are randomly not used.
         minibatches_size: int
             The size of the minibatches that are loaded from the batches. If -1 then full batches are returned. TODO: implement this for training ANNs.
+        random_file_sampling: bool
+            If true then of all avaiable files in the given directory, the files will be sampled in random order instead of alphabetically.
+        normalize_batch: bool
+            If true, the whole batch will be normalized columnwise und a sklearn functionality.
+        TE_smoothing: dict
+            A dict that contains the target encoding smoothing hyperparameter for each of the targets as key.
         verbose: int
             Level of verboseness.
             <=0: No prints
