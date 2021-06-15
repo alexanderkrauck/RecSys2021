@@ -168,4 +168,4 @@ simple_pandas_run/
 #exlude certain types
 *.zip
 *.parquet
-*.csv
+#*.csv

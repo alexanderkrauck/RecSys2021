@@ -161,9 +161,11 @@ class RecSys2021BaseModel(ABC):
                 validation_run_name = strftime("%Y-%m-%dT%H-%M-%S") + "_" + validation_run_name
 
             with open(store_results_file, 'a') as output:
-                output.write(f"\n{validation_run_name}:\n")
+                output.write(f"{validation_run_name}")
                 for key in result_groups:
-                    output.write(f"{key:32}: {result_groups[key]}\n")
+                    output.write(f",{result_groups[key]}")
+                output.write("\n")
+
         
 
         return result_groups
