@@ -1,0 +1,31 @@
+#!/env/bin/python
+
+test_data_location = "test"
+user_index_file = "user_index_w_type.parquet"
+xgb_model_location = "xgb_models_33_0.05_noise_0maxdeltastep"
+result_output_location = "results.csv"
+
+import utils.model
+import utils.dataloader
+
+if __name__ == '__main__':
+        print("Creating Data Loader")
+        dl = utils.dataloader.RecSys2021TSVDataLoader(
+                data_directory = test_data_location, 
+                user_index_location = user_index_file,
+                mode = "test", 
+                load_n_batches = -1, 
+                batch_size = 1000000,#1 million
+                verbose = 2,
+                remove_day_counts = True,
+                remove_user_counts= True,
+                random_file_sampling= False
+                )
+
+
+        print("Creating XGB model")
+        recsysxgb = utils.model.RecSysXGB1(xgb_model_location)
+        print("Evaluating Test Set")
+        recsysxgb.evaluate_test_set(testLoader = dl, output_file = result_output_location)
+
+        print("done!")
