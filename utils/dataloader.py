@@ -288,7 +288,7 @@ class RecSys2021TSVDataLoader():
             df["retweet_comment"] = df["retweet_comment"].fillna(0).astype(np.uint32)
             df["like"] = df["like"].fillna(0).astype(np.uint32)
 
-        if self.verbose >= 2: print(f"Did prepro part 1 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        if self.verbose >= 2: print(f"Did prepro part 1 of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
 
@@ -309,7 +309,7 @@ class RecSys2021TSVDataLoader():
                     df[key] = df[cols].apply(fun, axis=1).astype(dt)
 
 
-        if self.verbose >= 2: print(f"Did prepro part 2 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        if self.verbose >= 2: print(f"Did prepro part 2 of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
         #do prepro 3 (much faster like this than with apply)
@@ -340,7 +340,7 @@ class RecSys2021TSVDataLoader():
 
 
 
-        if self.verbose >= 2: print(f"Did prepro part 3 of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        if self.verbose >= 2: print(f"Did prepro part 3 of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
         #drop not needed cols
         df = df.drop(
@@ -364,7 +364,7 @@ class RecSys2021TSVDataLoader():
         gc.collect()
 
 
-        if self.verbose >= 2: print(f"Merged Users of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        if self.verbose >= 2: print(f"Merged Users of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
 
@@ -393,7 +393,7 @@ class RecSys2021TSVDataLoader():
                     df[col] += np.random.normal(0, scale = self.add_normal_TE_noise_std, size = len(df))
 
 
-        if self.verbose >= 2: print(f"Extracted TE of {self.n_batches_done} in {ti() - delta_t:.2f}")
+        if self.verbose >= 2: print(f"Extracted TE of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
         delta_t = ti()
 
 

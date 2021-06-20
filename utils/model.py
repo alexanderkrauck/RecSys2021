@@ -20,6 +20,8 @@ import numpy as np
 from sklearn.metrics import average_precision_score, log_loss
 from time import strftime
 
+from sklearn.tree import DecisionTreeClassifier
+
 from .constants import user_group_weights, like_weights, reply_weights, retweet_comment_weights, retweet_weights
 
 #Convention Imports
@@ -216,6 +218,7 @@ class SimpleFFN(torch.nn.Module):
 class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
     def __init__(self, model_dir, n_input_features: int, device="cpu"):
         super(RecSysNeural1, self).__init__()
+        self.model_dir = model_dir
 
         self.like_net = SimpleFFN(n_input_features)
         self.reply_net = SimpleFFN(n_input_features)
@@ -223,6 +226,31 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
         self.retweet_net = SimpleFFN(n_input_features)
 
         self.device = device
+
+        self.to(device)
+        self.load()
+
+    def save(self):
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+
+
+        torch.save(self.like_net.state_dict(), join(self.model_dir,"like"))
+        torch.save(self.reply_net.state_dict(), join(self.model_dir,"reply"))
+        torch.save(self.retweet_comment_net.state_dict(), join(self.model_dir,"retweet_comment"))
+        torch.save(self.retweet_net.state_dict(), join(self.model_dir,"retweet"))
+
+    def load(self):
+        if Path(self.model_dir).exists():
+            files = os.listdir(self.model_dir)
+            if "like" in files:
+                self.like_net.load_state_dict(torch.load(join(self.model_dir, "like")))
+            if "reply" in files:
+                self.reply_net.load_state_dict(torch.load(join(self.model_dir, "reply")))
+            if "retweet_comment" in files:
+                self.retweet_comment_net.load_state_dict(torch.load(join(self.model_dir, "retweet_comment")))
+            if "retweet" in files:
+                self.retweet_net.load_state_dict(torch.load(join(self.model_dir, "retweet")))
+
 
     def forward(self, x):
         x = torch.tensor(x.to_numpy().astype(np.float32), dtype=torch.float, device=self.device)
@@ -250,6 +278,13 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
 
                 reply_pred, retweet_pred ,retweet_comment_pred, like_pred = self.forward(x)
 
+                #Maybe try to avoid saturated states? Experimental
+                #reply = (reply - 0.5) * 0.9 + 0.5
+                #retweet = (retweet - 0.5) * 0.9 + 0.5
+                #retweet_comment = (retweet_comment - 0.5) * 0.9 + 0.5
+                #like = (like - 0.5) * 0.9 + 0.5
+
+
                 reply_loss = F.binary_cross_entropy(reply_pred, reply, reduction="none") * quantile_wei * reply_wei
                 retweet_loss = F.binary_cross_entropy(retweet_pred, retweet, reduction="none") * quantile_wei * retweet_wei
                 retweet_comment_loss = F.binary_cross_entropy(retweet_comment_pred, retweet_comment, reduction="none") * quantile_wei * retweet_comment_wei
@@ -260,6 +295,7 @@ class RecSysNeural1(torch.nn.Module, RecSys2021BaseModel):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+        self.save()
 
 
     @torch.no_grad()
@@ -394,7 +430,136 @@ class RecSysXGB1(RecSys2021BaseModel):
         return tuple(results)
 
 
+class RecSysSuperModel(RecSys2021BaseModel):
 
+    def __init__(self, models: List[RecSys2021BaseModel], model_dir: str) -> None:
+        self.clfs_ = {}
+        self.targets__ = ['has_reply', 'has_retweet', 'has_retweet_comment', 'has_like']
+
+        self.model_dir = model_dir
+        self.models = models
+
+        self.load()
+
+    def save(self):
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+        for clf_target in self.clfs_:
+            clf = self.clfs_[clf_target]
+            clf.save_model(join(self.model_dir, clf_target))
+    
+    def load(self):
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+        for filename in os.listdir(self.model_dir):
+            if filename in self.targets__:
+                booster = xgb.Booster()
+                booster.load_model(join(self.model_dir, filename))
+                self.clfs_[filename] = booster
+
+    def train_in_memory(self,
+        train_set: pd.DataFrame,
+        quantiles: list,
+        targets: tuple,
+        xgb_parameters: dict,
+        num_boost_rounds: int = 100,
+        feature_columns: List = None,
+        resume_if_exists: bool = False,
+        save_to_model_dir: bool = True,
+        verbose: int = 0
+    ):
+        """Train in-memory with a pandas train set. 
+        
+
+        Parameters
+        ----------
+        train_set: pd.DataFrame
+            Pandas dataframe with features to be used.
+        targets: tuple
+            A tuple with 4 lists for the targets in the order: 'has_reply', 'has_retweet', 'has_retweet_comment', 'has_like'
+        xgb_parameters: dict
+            The configuration for the XGB model as specified in https://xgboost.readthedocs.io/en/latest/parameter.html
+        """
+
+        preds = []
+        
+        for model in self.models:
+            model_out = model.infer(x = train_set, quantile=quantiles)
+            preds.extend(list(model_out))
+        preds = np.array(preds).T
+
+
+        for target_name, target in zip(self.targets__, targets):
+            if verbose >= 1: print(f"Now training {target_name} clf.")
+
+
+            dtrain = xgb.DMatrix(preds, label=target)
+            if target_name in self.clfs_ and resume_if_exists:
+                clf = xgb.train(xgb_parameters, dtrain, num_boost_rounds, xgb_model=self.clfs_[target_name])
+            else:
+                clf = xgb.train(xgb_parameters, dtrain, num_boost_rounds)
+
+            self.clfs_[target_name] = clf
+            if verbose >= 1: print(f"Finished training {target_name} clf.")
+        if save_to_model_dir:
+            self.save()
+        if verbose >= 1: print(f"Finished training all clfs.")
+
+
+    def fit(self, train_loader: Iterable, xgb_parameters, boost_rounds_per_iteration, verbose: int):
+        for df, quantile, target_tuple in train_loader:
+            self.train_in_memory(
+                df, 
+                quantile, 
+                target_tuple, 
+                xgb_parameters, 
+                boost_rounds_per_iteration, 
+                resume_if_exists=True, 
+                save_to_model_dir=False
+            )
+
+        self.save()
+
+    def infer(self, x, quantile):
+        preds = []
+        
+        for model in self.models:
+            model_out = model.infer(x = x, quantile=quantile)
+            preds.extend(list(model_out))
+        preds = np.array(preds).T
+        preds = xgb.DMatrix(preds)
+            
+        results = []
+        for key in self.targets__:
+            results.append(self.clfs_[key].predict(preds))
+        
+        return tuple(results)
+
+class PriorPredModel(RecSys2021BaseModel):
+
+    def fit(self, train_loader: Iterable):
+        n = 0
+        self.reply = 0
+        self.retweet = 0
+        self.retweet_comment = 0
+        self.like = 0
+        for df, quantile, target_tuple in train_loader:
+            self.reply = (np.sum(target_tuple[0]) + self.reply * n) / (len(target_tuple[0]) + n)
+            self.retweet = (np.sum(target_tuple[1]) + self.retweet * n) / (len(target_tuple[0]) + n)
+            self.retweet_comment = (np.sum(target_tuple[2]) + self.retweet_comment * n) / (len(target_tuple[0]) + n)
+            self.like = (np.sum(target_tuple[3]) + self.like * n) / (len(target_tuple[0]) + n)
+
+            n += len(target_tuple[0])
+
+
+
+    def infer(self, x, quantile):
+
+        return ([self.reply for i in range(len(x))], [self.retweet for i in range(len(x))], [self.retweet_comment for i in range(len(x))], [self.like for i in range(len(x))])
+
+
+class RandomBaselineModel(RecSys2021BaseModel):
+
+    def infer(self, x, quantile):
+        return (list(np.random.uniform(size=len(x))), list(np.random.uniform(size=len(x))), list(np.random.uniform(size=len(x))), list(np.random.uniform(size=len(x))))
 
 """Functions copied from https://recsys-twitter.com/code/snippets"""
 def calculate_ctr(target):
