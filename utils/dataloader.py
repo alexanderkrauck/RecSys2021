@@ -75,6 +75,7 @@ class RecSys2021TSVDataLoader():
         normalize_batch: bool = False,
         add_normal_TE_noise_std: float = 0,
         TE_smoothing: Dict = {"reply":20, "like":20, "retweet":20, "retweet_comment":20},
+        drop_features = [],
         verbose:int = 0):
         """
 
@@ -83,7 +84,7 @@ class RecSys2021TSVDataLoader():
         data_directory: str
             The directory of the data where the data has csv/tsv format.
         user_index_location: str
-            The file name of the user index to use for enhancing the data
+            The file name of the user index to use for enhancing the data. If None than it is not used.
         mode: str
             Mode of the Dataloader. Can be "train", "val" and "test".
             For "train" and "val" labeles are expected and for "test" it does not expect labels but it also returns tweet_id and b_user_id.
@@ -134,9 +135,19 @@ class RecSys2021TSVDataLoader():
         self.TE_smoothing = TE_smoothing
         self.remove_user_counts = remove_user_counts
         self.add_normal_TE_noise_std = add_normal_TE_noise_std
+        self.drop_features = drop_features
         if self.minibatch_size != -1:
             self.batch = None
         
+        if user_index_location is not None:
+            self.load_user_index(user_index_location, keep_user_percent, remove_day_counts)
+        else:
+            self.user_index = None
+
+        gc.collect()
+        if self.verbose >= 1: print(f"Created Dataloader in {ti()-dt:.2f} seconds!")
+
+    def load_user_index(self, user_index_location, keep_user_percent, remove_day_counts):
         if self.verbose >= 2:print("Loading User Index")
         self.user_index = pd.read_parquet(user_index_location)
         self.user_index = self.user_index.drop(["following_count", "verified", "following_count", "follower_count", "account_creation"] ,axis=1)
@@ -166,11 +177,6 @@ class RecSys2021TSVDataLoader():
             for col in cols:
                 colsum = colsum + self.user_index[col]
             self.user_index[grp] = colsum
-
-        gc.collect()
-        if self.verbose >= 1: print(f"Created Dataloader in {ti()-dt:.2f} seconds!")
-
-
 
     def __iter__(self):
         self.remaining_files = os.listdir(self.data_directory)
@@ -355,46 +361,47 @@ class RecSys2021TSVDataLoader():
 
         #this is very RAM costly for short periods of time (+15GB spikes ontop of the normal)
         gc.collect()
-        delta_t = ti()
-        #df = pd.merge(df, self.user_index, how="left", left_on="a_user_id_num", right_index=True)
-        df  = df.join(self.user_index, on="a_user_id_num")
-        gc.collect()
-        #df = pd.merge(df, self.user_index, how="left", left_on="b_user_id_num", right_index=True, suffixes=("_A", "_B"))  
-        df  = df.join(self.user_index, on="b_user_id_num", lsuffix="_A", rsuffix="_B")
-        gc.collect()
+        if self.user_index is not None:
+            delta_t = ti()
+            #df = pd.merge(df, self.user_index, how="left", left_on="a_user_id_num", right_index=True)
+            df  = df.join(self.user_index, on="a_user_id_num")
+            gc.collect()
+            #df = pd.merge(df, self.user_index, how="left", left_on="b_user_id_num", right_index=True, suffixes=("_A", "_B"))  
+            df  = df.join(self.user_index, on="b_user_id_num", lsuffix="_A", rsuffix="_B")
+            gc.collect()
 
 
-        if self.verbose >= 2: print(f"Merged Users of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
-        delta_t = ti()
+            if self.verbose >= 2: print(f"Merged Users of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
+            delta_t = ti()
 
 
-        #Extract TEs
-        for target in ["reply", "like", "retweet", "retweet_comment"]:
-            for as_user in["_a","_b"]:
-                for in_tweet_type in["_TopLevel", "_Retweet", "_Quote"]:
-                    #TODO: make it mathematically correct (currently taking non exising users as 0) -> also below
-                    prior = (self.user_index[f"n_{target}{as_user}{in_tweet_type}"] / self.user_index[f"n_present{as_user}{in_tweet_type}"]).fillna(0).mean()
+            #Extract TEs
+            for target in ["reply", "like", "retweet", "retweet_comment"]:
+                for as_user in["_a","_b"]:
+                    for in_tweet_type in["_TopLevel", "_Retweet", "_Quote"]:
+                        #TODO: make it mathematically correct (currently taking non exising users as 0) -> also below
+                        prior = (self.user_index[f"n_{target}{as_user}{in_tweet_type}"] / self.user_index[f"n_present{as_user}{in_tweet_type}"]).fillna(0).mean()
+                        for user in ["_A","_B"]:
+                            user_prior = (df[f"n_{target}{as_user}{in_tweet_type}{user}"] / df[f"n_present{as_user}{in_tweet_type}{user}"]).fillna(0)
+                            df[f"TE_{target}{as_user}{in_tweet_type}{user}"] = (df[f"n_present{as_user}{in_tweet_type}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{in_tweet_type}{user}"])
+                    
+                    prior = (self.user_index[f"n_{target}{as_user}"] / self.user_index[f"n_present{as_user}"]).fillna(0).mean()#TODO: here!
                     for user in ["_A","_B"]:
-                        user_prior = (df[f"n_{target}{as_user}{in_tweet_type}{user}"] / df[f"n_present{as_user}{in_tweet_type}{user}"]).fillna(0)
-                        df[f"TE_{target}{as_user}{in_tweet_type}{user}"] = (df[f"n_present{as_user}{in_tweet_type}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{in_tweet_type}{user}"])
-                
-                prior = (self.user_index[f"n_{target}{as_user}"] / self.user_index[f"n_present{as_user}"]).fillna(0).mean()#TODO: here!
-                for user in ["_A","_B"]:
-                    user_prior = (df[f"n_{target}{as_user}{user}"] / df[f"n_present{as_user}{user}"]).fillna(0)
-                    df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{user}"])
-        
-        #safety 
-        df = df.fillna(-10)
+                        user_prior = (df[f"n_{target}{as_user}{user}"] / df[f"n_present{as_user}{user}"]).fillna(0)
+                        df[f"TE_{target}{as_user}{user}"] = (df[f"n_present{as_user}{user}"] * user_prior + self.TE_smoothing[target] * prior) / (self.TE_smoothing[target] + df[f"n_present{as_user}{user}"])
+            
+            #safety 
+            df = df.fillna(-10)
 
 
-        if self.add_normal_TE_noise_std > 0:
-            for col in df.columns:
-                if col.startswith("TE_"):
-                    df[col] += np.random.normal(0, scale = self.add_normal_TE_noise_std, size = len(df))
+            if self.add_normal_TE_noise_std > 0:
+                for col in df.columns:
+                    if col.startswith("TE_"):
+                        df[col] += np.random.normal(0, scale = self.add_normal_TE_noise_std, size = len(df))
 
 
-        if self.verbose >= 2: print(f"Extracted TE of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
-        delta_t = ti()
+            if self.verbose >= 2: print(f"Extracted TE of Batch Nr. {self.n_batches_done} in {ti() - delta_t:.2f}")
+            delta_t = ti()
 
 
         #Drop unneccesary cols
@@ -405,6 +412,11 @@ class RecSys2021TSVDataLoader():
 
         
         if self.verbose >= 1: print(f"Finished Batch Nr. {self.n_batches_done} from file {self.current_file_name} in {ti() - start_delta_t:.2f}s!")
+
+        #safety
+        df = df.fillna(-10)
+        keepcols = [col for col in df.columns if col not in self.drop_features]
+        df = df[keepcols]
 
         return df
 
