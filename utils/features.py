@@ -26,13 +26,13 @@ def symlog(item):
 
 
 def quantile_mapping(x):
-    if x < 421:
+    if x < 93:
         return 1
-    if x < 1353:
+    if x < 217:
         return 2
-    if x < 4945:
+    if x < 442:
         return 3
-    if x < 30774:
+    if x < 1064:
         return 4
     return 5
 
